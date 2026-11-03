@@ -23,7 +23,14 @@ import app.fintrack.domain.model.PeriodTotals
 import app.fintrack.domain.model.TransactionDetails
 import app.fintrack.ui.budget.BudgetItem
 import app.fintrack.ui.budget.BudgetOverviewBuilder
+import app.fintrack.data.repository.RecurringRepository
+import app.fintrack.ui.recurring.RecurringActions
+import app.fintrack.ui.recurring.RecurringItem
+import app.fintrack.ui.recurring.RecurringItems
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -65,6 +72,14 @@ data class HomeLoans(
     val count: Int = 0,
 )
 
+/** Регулярные платежи на главной: ждут подтверждения и ближайшие на неделю. */
+data class HomeRecurring(
+    val loading: Boolean = true,
+    val pending: List<RecurringItem> = emptyList(),
+    val soon: List<RecurringItem> = emptyList(),
+    val count: Int = 0,
+)
+
 data class HomeUiState(
     val loading: Boolean = true,
     val hideAmounts: Boolean = false,
@@ -89,12 +104,16 @@ class HomeViewModel @Inject constructor(
     private val deposits: DepositRepository,
     piggyRepo: PiggyRepository,
     loanRepo: app.fintrack.data.repository.LoanRepository,
+    private val recurringRepo: RecurringRepository,
+    @ApplicationContext context: android.content.Context,
     private val settings: SettingsRepository,
 ) : ViewModel() {
 
     init {
         // Начислить проценты по вкладам за наступившие (и пропущенные) месяцы.
         viewModelScope.launch { deposits.postDueInterest() }
+        // Провести автоматические регулярные платежи, наступившие с прошлого запуска.
+        viewModelScope.launch { recurringRepo.processDue() }
     }
 
     private val zone: ZoneId = ZoneId.systemDefault()
@@ -157,6 +176,24 @@ class HomeViewModel @Inject constructor(
         val open = list.filter { !it.isPaidOff }.sortedBy { it.nextDate }
         HomeLoans(loading = false, upcoming = open.take(3), count = open.size)
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeLoans())
+
+    private val recurringEvents = Channel<String>(Channel.BUFFERED)
+    val messages = recurringEvents.receiveAsFlow()
+    private val recurringActions = RecurringActions(context, recurringRepo) { recurringEvents.send(it) }
+
+    val recurring: StateFlow<HomeRecurring> = combine(
+        recurringRepo.observeAll(),
+        accounts.observeAccounts(),
+        categories.observeAll(),
+    ) { list, accs, cats ->
+        val items = RecurringItems.build(list, accs, cats, today).filter { !it.payment.isPaused && it.nextDate != null }
+        val pending = items.filter { it.isPending }.sortedBy { it.nextDate }
+        val soon = items.filter { !it.isPending && it.nextDate!! <= today.plusDays(7) }.sortedBy { it.nextDate }.take(3)
+        HomeRecurring(loading = false, pending = pending, soon = soon, count = items.size)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeRecurring())
+
+    fun confirmRecurring(item: RecurringItem, amountText: String?): String? = recurringActions.confirm(viewModelScope, item, amountText)
+    fun skipRecurring(item: RecurringItem) = recurringActions.skip(viewModelScope, item)
 
     fun toggleHidden() {
         viewModelScope.launch { settings.setHideAmounts(!state.value.hideAmounts) }

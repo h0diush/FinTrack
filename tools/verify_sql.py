@@ -328,6 +328,46 @@ def main():
     check("кредит вне общего баланса не влияет на график баланса", got_b2["BYN"] - got_b["BYN"], lb)
     db.execute("UPDATE accounts SET excludeFromTotal = 1 WHERE id = 'loan1'")
 
+    # 13б. Миграция 6→7: регулярные платежи; повторы — обычные операции с id «rec:<шаблон>:<день>»
+    db.execute(m["CREATE_RECURRING"])
+    for k in ("CREATE_RECURRING_INDEX_ACCOUNT", "CREATE_RECURRING_INDEX_TO_ACCOUNT", "CREATE_RECURRING_INDEX_CATEGORY"):
+        db.execute(m[k])
+    cols = [r[1] for r in db.execute("PRAGMA table_info(recurring)")]
+    check("миграция 6→7: колонки recurring", cols, [
+        "id", "type", "accountId", "toAccountId", "amountMinor", "toAmountMinor", "feeMinor", "categoryId",
+        "payee", "comment", "unit", "repeatInterval", "startDay", "lastDayOfMonth", "endDay", "maxCount",
+        "minuteOfDay", "processedCount", "mode", "isPaused", "createdAt"])
+    idx = sorted(r[1] for r in db.execute("PRAGMA index_list(recurring)") if not r[1].startswith("sqlite_"))
+    check("миграция 6→7: индексы", idx, ["index_recurring_accountId", "index_recurring_categoryId", "index_recurring_toAccountId"])
+    fk = sorted((r[2], r[3], r[6]) for r in db.execute("PRAGMA foreign_key_list(recurring)"))
+    check("миграция 6→7: внешние ключи", fk, [
+        ("accounts", "accountId", "CASCADE"), ("accounts", "toAccountId", "CASCADE"), ("categories", "categoryId", "SET NULL")])
+    db.execute("INSERT INTO accounts VALUES ('rc','Для шаблона','CARD','BYN',0,0,20,0,0,0)")
+    db.execute("INSERT INTO categories VALUES ('rcat','Подписки','EXPENSE',NULL,'g',0,20,0,0)")
+    db.execute("INSERT INTO recurring VALUES ('r1','EXPENSE','rc',NULL,2500,NULL,0,'rcat','Интернет','','MONTH',1,"
+               "20000,0,NULL,NULL,720,0,'CONFIRM',0,0)")
+    db.execute("INSERT INTO transactions VALUES ('rec:r1:20000','EXPENSE','rc',NULL,2500,NULL,0,'rcat',1,'','',0,1,1)")
+    (rb,) = db.execute(q["ACCOUNT_BALANCE"], {"accountId": "rc"}).fetchone()
+    check("проведённый повтор — обычная операция в балансе", rb, -2500)
+    try:
+        db.execute("INSERT INTO transactions VALUES ('rec:r1:20000','EXPENSE','rc',NULL,2500,NULL,0,'rcat',1,'','',0,1,1)")
+        check("повтор той же даты не дублируется", "вставлено", "ошибка")
+    except sqlite3.IntegrityError:
+        check("повтор той же даты не дублируется", "ошибка", "ошибка")
+    db.execute("DELETE FROM recurring WHERE id = 'r1'")
+    (left,) = db.execute("SELECT COUNT(*) FROM transactions WHERE id = 'rec:r1:20000'").fetchone()
+    check("удаление шаблона не трогает проведённые операции", left, 1)
+    db.execute("INSERT INTO accounts VALUES ('rc2','Пустой','CARD','BYN',0,0,21,0,0,0)")
+    db.execute("INSERT INTO categories VALUES ('rcat2','Временная','EXPENSE',NULL,'g',0,21,0,0)")
+    db.execute("INSERT INTO recurring VALUES ('r2','EXPENSE','rc2',NULL,100,NULL,0,'rcat2','','','DAY',1,"
+               "20000,0,NULL,NULL,720,0,'AUTO',0,0)")
+    db.execute("DELETE FROM categories WHERE id = 'rcat2'")
+    (cat,) = db.execute("SELECT categoryId FROM recurring WHERE id = 'r2'").fetchone()
+    check("удалённая категория обнуляется в шаблоне", cat, None)
+    db.execute("DELETE FROM accounts WHERE id = 'rc2'")
+    (n,) = db.execute("SELECT COUNT(*) FROM recurring WHERE id = 'r2'").fetchone()
+    check("шаблон удаляется вместе со счётом без операций", n, 0)
+
     # 13. Внешний ключ не даёт удалить счёт с операциями
     try:
         db.execute("DELETE FROM accounts WHERE id = 'cash'")

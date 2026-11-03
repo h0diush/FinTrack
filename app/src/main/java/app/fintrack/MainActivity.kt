@@ -1,11 +1,13 @@
 package app.fintrack
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -13,6 +15,7 @@ import androidx.lifecycle.viewModelScope
 import app.fintrack.data.repository.SettingsRepository
 import app.fintrack.domain.model.AppSettings
 import app.fintrack.domain.model.ThemeMode
+import app.fintrack.notify.RecurringNotifier
 import app.fintrack.ui.navigation.FinTrackNavHost
 import app.fintrack.ui.theme.FinTrackTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -30,8 +33,12 @@ class MainViewModel @Inject constructor(settings: SettingsRepository) : ViewMode
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    /** Экран, который нужно открыть по нажатию на уведомление. */
+    private val openRequest = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) openRequest.value = intent?.getStringExtra(RecurringNotifier.EXTRA_OPEN)
         enableEdgeToEdge()
         setContent {
             val vm: MainViewModel = hiltViewModel()
@@ -42,8 +49,13 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.DARK -> true
             }
             FinTrackTheme(darkTheme = dark) {
-                FinTrackNavHost()
+                FinTrackNavHost(openRequest = openRequest.value, onOpenHandled = { openRequest.value = null })
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        intent.getStringExtra(RecurringNotifier.EXTRA_OPEN)?.let { openRequest.value = it }
     }
 }

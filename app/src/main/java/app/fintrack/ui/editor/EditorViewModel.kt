@@ -5,12 +5,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.fintrack.data.repository.AccountRepository
 import app.fintrack.data.repository.CategoryRepository
+import app.fintrack.data.repository.RecurringRepository
 import app.fintrack.data.repository.SettingsRepository
 import app.fintrack.data.repository.TransactionRepository
 import app.fintrack.domain.logic.ExpressionEvaluator
 import app.fintrack.domain.logic.KeypadInput
 import app.fintrack.domain.logic.KeypadKey
 import app.fintrack.domain.logic.Money
+import app.fintrack.domain.logic.RecurrenceCalculator
+import app.fintrack.domain.logic.RecurringMode
+import app.fintrack.domain.logic.RepeatUnit
 import app.fintrack.domain.logic.TransactionDraft
 import app.fintrack.domain.logic.TransactionValidator
 import app.fintrack.domain.logic.ValidationError
@@ -36,7 +40,8 @@ import java.time.LocalTime
 import java.time.ZoneId
 import javax.inject.Inject
 
-enum class EditorMode { NEW, EDIT, COPY }
+/** TEMPLATE — изменение регулярного платежа (шаблона), а не операции. */
+enum class EditorMode { NEW, EDIT, COPY, TEMPLATE }
 
 data class EditorUiState(
     val loading: Boolean = true,
@@ -54,6 +59,10 @@ data class EditorUiState(
     val payee: String = "",
     val comment: String = "",
     val isFavorite: Boolean = false,
+    /** Повтор: null — разовая операция. У шаблона задан всегда. */
+    val repeat: RepeatDraft? = null,
+    /** id регулярного платежа в режиме TEMPLATE. */
+    val templateId: String? = null,
     /** Сумма корректировки (со знаком), только для просмотра. */
     val adjustmentMinor: Long = 0,
     val errors: Set<ValidationError> = emptySet(),
@@ -99,6 +108,10 @@ sealed interface EditorEvent {
     data class OpenCopy(val id: String) : EditorEvent
 }
 
+/** Сделать регулярной можно новую операцию или копию; шаблон регулярен всегда. Не корректировку. */
+val EditorUiState.canRepeat: Boolean
+    get() = type != TransactionType.ADJUSTMENT && (mode == EditorMode.NEW || mode == EditorMode.COPY || mode == EditorMode.TEMPLATE)
+
 @HiltViewModel
 class EditorViewModel @Inject constructor(
     savedState: SavedStateHandle,
@@ -106,9 +119,12 @@ class EditorViewModel @Inject constructor(
     private val accountsRepo: AccountRepository,
     private val categoriesRepo: CategoryRepository,
     private val settings: SettingsRepository,
+    private val recurring: RecurringRepository,
 ) : ViewModel() {
 
     private val argType: String? = savedState["type"]
+    private val argRecurringId: String? = savedState["recurringId"]
+    private val argRepeat: Boolean = savedState.get<String>("repeat") == "1"
     private val argId: String? = savedState["id"]
     private val argCopyOf: String? = savedState["copyOf"]
 
@@ -131,6 +147,55 @@ class EditorViewModel @Inject constructor(
     private suspend fun initialize() {
         val s = settings.settings.first()
         val accounts = accountsRepo.observeAccounts().first()
+        if (argRecurringId != null) {
+            val r = recurring.get(argRecurringId)
+            if (r == null) {
+                events.send(EditorEvent.Closed)
+                return
+            }
+            val accCurrency = accounts.firstOrNull { it.account.id == r.accountId }?.account?.currencyCode ?: s.baseCurrency
+            val toCurrency = accounts.firstOrNull { it.account.id == r.toAccountId }?.account?.currencyCode
+            val rule = r.rule
+            _state.update {
+                it.copy(
+                    loading = false,
+                    mode = EditorMode.TEMPLATE,
+                    templateId = r.id,
+                    type = r.type,
+                    expression = Money.toInput(r.amountMinor, accCurrency),
+                    accountId = r.accountId,
+                    toAccountId = r.toAccountId,
+                    toAmountText = if (toCurrency != null && toCurrency != accCurrency && r.toAmountMinor != null) {
+                        Money.toInput(r.toAmountMinor, toCurrency)
+                    } else {
+                        ""
+                    },
+                    feeText = if (r.feeMinor > 0) Money.toInput(r.feeMinor, accCurrency) else "",
+                    categoryId = r.categoryId,
+                    // Дата в форме — следующий платёж; после сохранения правило считается от неё.
+                    date = r.nextDate ?: LocalDate.now(),
+                    time = LocalTime.of(r.minuteOfDay / 60, r.minuteOfDay % 60),
+                    payee = r.payee,
+                    comment = r.comment,
+                    repeat = RepeatDraft(
+                        unit = rule.unit,
+                        interval = rule.interval,
+                        lastDayOfMonth = rule.lastDayOfMonth,
+                        end = when {
+                            rule.maxCount != null -> RepeatEnd.COUNT
+                            rule.endDate != null -> RepeatEnd.DATE
+                            else -> RepeatEnd.NEVER
+                        },
+                        endDate = rule.endDate,
+                        count = ((rule.maxCount ?: 12) - r.processedCount).coerceAtLeast(1),
+                        mode = r.mode,
+                    ),
+                    baseCurrency = s.baseCurrency,
+                    hideAmounts = s.hideAmounts,
+                )
+            }
+            return
+        }
         val active = accounts.filter { !it.account.isArchived }
         val sourceId = argId ?: argCopyOf
         val source = sourceId?.let { transactions.get(it) }
@@ -148,6 +213,7 @@ class EditorViewModel @Inject constructor(
                     accountId = accountId,
                     toAccountId = if (type == TransactionType.TRANSFER) defaultToAccount(active, accountId) else null,
                     categoryId = defaultCategory(type, s.lastExpenseCategoryId, s.lastIncomeCategoryId),
+                    repeat = if (argRepeat) RepeatDraft(unit = RepeatUnit.MONTH, mode = RecurringMode.CONFIRM) else null,
                     baseCurrency = s.baseCurrency,
                     hideAmounts = s.hideAmounts,
                 )
@@ -251,6 +317,7 @@ class EditorViewModel @Inject constructor(
     fun setTime(time: LocalTime) = _state.update { it.copy(time = time) }
     fun setPayee(text: String) = _state.update { it.copy(payee = text.take(100)) }
     fun setComment(text: String) = _state.update { it.copy(comment = text.take(500)) }
+    fun setRepeat(r: RepeatDraft?) = _state.update { if (it.mode == EditorMode.TEMPLATE && r == null) it else it.copy(repeat = r) }
 
     fun toggleFavorite() {
         val s = _state.value
@@ -294,6 +361,28 @@ class EditorViewModel @Inject constructor(
             is ValidationResult.Invalid -> _state.update { it.copy(errors = result.errors) }
             is ValidationResult.Valid -> {
                 _state.update { it.copy(saving = true, errors = emptySet()) }
+                val repeat = s.repeat
+                if (repeat != null && s.canRepeat) {
+                    viewModelScope.launch {
+                        val rule = repeat.toRule(s.date)
+                        val minute = s.time.hour * 60 + s.time.minute
+                        val templateId = s.templateId
+                        if (templateId != null) {
+                            recurring.update(templateId, result.value, s.payee, s.comment, rule, minute, repeat.mode)
+                            events.send(EditorEvent.Message("Регулярный платёж сохранён"))
+                        } else {
+                            recurring.create(result.value, s.payee, s.comment, rule, minute, repeat.mode)
+                            settings.rememberLastUsed(
+                                accountId = result.value.accountId,
+                                expenseCategoryId = result.value.categoryId.takeIf { s.type == TransactionType.EXPENSE },
+                                incomeCategoryId = result.value.categoryId.takeIf { s.type == TransactionType.INCOME },
+                            )
+                            events.send(EditorEvent.Message("Регулярный платёж: " + RecurrenceCalculator.describe(rule).lowercase()))
+                        }
+                        events.send(EditorEvent.Closed)
+                    }
+                    return
+                }
                 viewModelScope.launch {
                     transactions.save(s.editingId, result.value, millis, s.payee, s.comment, s.isFavorite)
                     settings.rememberLastUsed(
@@ -308,6 +397,14 @@ class EditorViewModel @Inject constructor(
     }
 
     fun delete() {
+        _state.value.templateId?.let { templateId ->
+            viewModelScope.launch {
+                recurring.delete(templateId)
+                events.send(EditorEvent.Message("Регулярный платёж удалён. Проведённые операции остались в истории"))
+                events.send(EditorEvent.Closed)
+            }
+            return
+        }
         val id = _state.value.editingId ?: return
         viewModelScope.launch {
             transactions.delete(id)

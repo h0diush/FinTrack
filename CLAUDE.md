@@ -18,14 +18,14 @@ Kotlin 2.0.21, AGP 8.13.2, Gradle 8.13 (нужен **JDK 21**, на JDK 25 не 
 в Android Studio: Settings → Build Tools → Gradle → Gradle JDK = 21 / встроенный JBR),
 compileSdk/targetSdk 35, minSdk 29, Java/JVM target 17.
 Jetpack Compose (BOM 2024.12.01, Material 3), Navigation Compose 2.8.5, Room 2.6.1 (KSP),
-Hilt 2.52, DataStore 1.1.1. Шрифт Inter (`res/font`), иконки Material Icons Rounded (extended).
-Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.8.0 (versionCode 8).
+Hilt 2.52, DataStore 1.1.1, WorkManager 2.9.1. Шрифт Inter (`res/font`), иконки Material Icons Rounded (extended).
+Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.9.0 (versionCode 9).
 
 ## Сборка и проверки (Windows)
 
 ```
 gradlew.bat assembleRelease          # APK: app\build\outputs\apk\release\app-release.apk
-gradlew.bat testDebugUnitTest        # JVM-тесты доменной логики (app/src/test), сейчас 83
+gradlew.bat testDebugUnitTest        # JVM-тесты доменной логики (app/src/test), сейчас 91
 gradlew.bat connectedDebugAndroidTest # Room и миграции на телефоне/эмуляторе (app/src/androidTest)
 python tools\verify_sql.py           # SQL из Sql.kt/Migrations.kt на настоящей SQLite
 ```
@@ -33,6 +33,9 @@ python tools\verify_sql.py           # SQL из Sql.kt/Migrations.kt на нас
 Release подписывается debug-ключом (для установки на свой телефон), minify включён.
 После любой правки: собрать, прогнать unit-тесты; при изменении SQL или схемы — ещё `verify_sql.py`.
 Сборка должна проходить без ошибок до того, как отчитываться пользователю.
+Gradle из среды Claude запускать с `--no-daemon "-Pkotlin.compiler.execution.strategy=in-process"`:
+оставленные ею демоны не видят ссылки в AppData\Local и ломают сборку в Android Studio.
+SDK — `D:\LOCALAPPDATA\Android\Sdk` (в `local.properties`).
 
 ## Структура
 
@@ -42,13 +45,16 @@ app/src/main/java/app/fintrack/
   domain/logic/              Money, ExpressionEvaluator, KeypadInput, BalanceCalculator,
                              TransactionValidator, Periods, StatisticsCalculator,
                              BudgetCalculator, Insights, DepositCalculator, Piggy (+ Motivation, ruPlural),
-                             Loans (LoanCalculator: аннуитет/дифференцированный график)
+                             Loans (LoanCalculator: аннуитет/дифференцированный график),
+                             Recurring (RecurrenceCalculator: даты повторов, описание по-русски)
   data/db/                   Entities.kt, Daos.kt, Sql.kt (все сложные запросы), Migrations.kt,
-                             FinTrackDatabase.kt (version 6), DefaultData.kt (стартовые категории)
-  data/repository/           Account, Transaction, Category, Settings, Stats, Budget, Deposit, Piggy, Loan
+                             FinTrackDatabase.kt (version 7), DefaultData.kt (стартовые категории)
+  data/repository/           Account, Transaction, Category, Settings, Stats, Budget, Deposit, Piggy, Loan, Recurring
   di/AppModule.kt            Room + миграции, DataStore
+  notify/                    RecurringWorker (WorkManager, ежедневно ~9:00), RecurringNotifier (канал, уведомления),
+                             RecurringActionReceiver (кнопки «Провести»/«Пропустить» в уведомлении)
   ui/                        theme, components, navigation, charts,
-                             home, editor, history, stats, budget, accounts, piggy, loans, categories, settings
+                             home, editor, history, stats, budget, accounts, piggy, loans, recurring, categories, settings
 ```
 
 MVVM: Screen (Compose) → HiltViewModel (StateFlow) → Repository → Room/DataStore.
@@ -80,10 +86,18 @@ UI зависит от доменных моделей, не от сущност
   Платёж (`LoanRepository.pay`): перевод «счёт → кредит» на тело долга + расход «Кредиты» на проценты,
   id `loan:<кредит>:<номер>:p|i`; досрочный — номер `x…`, только тело; выдача на счёт — `loan:<кредит>:0:d`.
   Число платежей считается по журналу (удалили операцию — график откатился). Проценты месяца = долг × ставка / 12.
+- Регулярный платёж = шаблон в `recurring` (данные операции + правило: единица, интервал, дата начала,
+  «последний день месяца», окончание по дате или числу раз, время, режим CONFIRM/AUTO, пауза).
+  `processedCount` — сколько первых повторов проведено или пропущено; повторы обрабатываются по порядку.
+  Проведённый повтор — обычная операция с id `rec:<шаблон>:<день эпохи>` (дубли невозможны).
+  AUTO проводится в `RecurringRepository.processDue` (запуск приложения + ежедневный `RecurringWorker`),
+  пропущенные дни догоняются; CONFIRM ждёт на главной/в уведомлении. Изменение шаблона пересчитывает
+  правило от даты следующего платежа (счётчик обнуляется). Создаётся из формы операции (строка «Повтор»).
 
 ## База данных и миграции
 
-- Схема версии 6: 1→2 budget_limits, 2→3 deposits, 3→4 piggy_banks, 4→5 accounts.excludeFromTotal, 5→6 loans.
+- Схема версии 7: 1→2 budget_limits, 2→3 deposits, 3→4 piggy_banks, 4→5 accounts.excludeFromTotal, 5→6 loans,
+  6→7 recurring.
 - Новая схема = `version + 1` в `FinTrackDatabase`, миграция в `Migrations.kt` (точный SQL,
   как генерирует Room; SQL — константой, чтобы его проверял `verify_sql.py`), добавить в `Migrations.ALL`,
   тест в `MigrationTest`. Новые NOT NULL колонки — с `@ColumnInfo(defaultValue = ...)`, совпадающим с миграцией.
@@ -117,7 +131,9 @@ UI зависит от доменных моделей, не от сущност
 Счета — с карточки баланса на главной и из настроек; настройки — шестерёнка на главной;
 копилки — лента на главной и раздел в «Счетах» (`Routes.piggy(id)`, `Routes.piggyEdit()`);
 кредиты — блок ближайших платежей на главной, раздел в «Счетах», пункт в настройках
-(`Routes.LOANS`, `Routes.loan(id)`, `Routes.loanEdit(id, kind)`).
+(`Routes.LOANS`, `Routes.loan(id)`, `Routes.loanEdit(id, kind)`);
+регулярные платежи — блок на главной, пункт в настройках, уведомление (`Routes.RECURRING`,
+`Routes.recurringEdit(id)`, `Routes.recurringNew()` — форма операции в режиме шаблона).
 
 ## Что сделано
 
@@ -127,10 +143,11 @@ UI зависит от доменных моделей, не от сущност
 0.5 — вклад с ежемесячной капитализацией, 0.6 — копилки с мотивационными фразами,
 0.7 — «не учитывать счёт в общем балансе», исправление разрывов слов.
 0.8 — кредиты/рассрочки/ипотека с графиком платежей; график баланса без счетов «вне баланса».
+0.9 — регулярные платежи: шаблоны, повторы, подтверждение или автопроведение, уведомления (WorkManager).
 
 ## Дальше по плану (обсуждать с пользователем перед началом)
 
-- Этап 4: регулярные платежи (WorkManager, режим подтверждения), автопополнение копилок,
+- Этап 4 (остаток): автопополнение копилок,
   курсы валют и пересчёт в основную валюту, уведомления (пороги бюджета).
 - Этап 5: шифрованные резервные копии (Android Keystore), экспорт CSV/XLSX/PDF, импорт CSV, PIN/биометрия.
 - Этап 6: виджет, полировка.

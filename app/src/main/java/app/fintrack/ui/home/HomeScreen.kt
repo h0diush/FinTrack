@@ -109,11 +109,18 @@ fun HomeScreen(
     onNewPiggy: () -> Unit,
     onOpenLoans: () -> Unit,
     onOpenLoan: (String) -> Unit,
+    onOpenRecurring: () -> Unit,
+    onOpenRecurringItem: (String) -> Unit,
     vm: HomeViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val piggies by vm.piggies.collectAsStateWithLifecycle()
     val loans by vm.loans.collectAsStateWithLifecycle()
+    val recurring by vm.recurring.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        vm.messages.collect { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show() }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -161,6 +168,20 @@ fun HomeScreen(
                 PiggySection(piggies, state.hideAmounts, onOpenPiggy, onNewPiggy)
             }
         }
+        if (recurring.pending.isNotEmpty() || recurring.soon.isNotEmpty()) {
+            item {
+                StaggeredAppear(5) {
+                    RecurringSection(
+                        recurring = recurring,
+                        hidden = state.hideAmounts,
+                        onOpenAll = onOpenRecurring,
+                        onOpen = onOpenRecurringItem,
+                        onConfirm = vm::confirmRecurring,
+                        onSkip = vm::skipRecurring,
+                    )
+                }
+            }
+        }
         if (loans.upcoming.isNotEmpty()) {
             item {
                 StaggeredAppear(5) {
@@ -202,6 +223,75 @@ fun HomeScreen(
                                         onClick = { onOpenTransaction(tx.transaction.id) },
                                     )
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Регулярные платежи: ждущие подтверждения — с кнопками, ближайшие на неделю — списком. */
+@Composable
+private fun RecurringSection(
+    recurring: HomeRecurring,
+    hidden: Boolean,
+    onOpenAll: () -> Unit,
+    onOpen: (String) -> Unit,
+    onConfirm: (app.fintrack.ui.recurring.RecurringItem, String?) -> String?,
+    onSkip: (app.fintrack.ui.recurring.RecurringItem) -> Unit,
+) {
+    Column(Modifier.padding(top = 4.dp)) {
+        SectionTitle(if (recurring.pending.isNotEmpty()) "Ждут подтверждения" else "Скоро спишется") {
+            TextButton(onClick = onOpenAll) {
+                Text("Все")
+                Icon(Icons.Rounded.ChevronRight, null, Modifier.size(IconSize.sm))
+            }
+        }
+        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            recurring.pending.forEach { item ->
+                app.fintrack.ui.recurring.PendingCard(
+                    item = item,
+                    hidden = hidden,
+                    onConfirm = { text -> onConfirm(item, text) },
+                    onSkip = { onSkip(item) },
+                    onOpen = { onOpen(item.id) },
+                )
+            }
+            if (recurring.soon.isNotEmpty()) {
+                if (recurring.pending.isNotEmpty()) {
+                    Text(
+                        "Скоро спишется",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp, start = 4.dp),
+                    )
+                }
+                AppCard(Modifier.fillMaxWidth().animateContentSize()) {
+                    Column(Modifier.padding(vertical = 4.dp)) {
+                        recurring.soon.forEachIndexed { i, item ->
+                            if (i > 0) HorizontalDivider(Modifier.padding(start = 70.dp, end = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                            val (icon, color) = app.fintrack.ui.recurring.recurringIcon(item)
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .bounceClick(pressedScale = 0.98f) { onOpen(item.id) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                IconBadge(icon, color, size = 40.dp)
+                                Spacer(Modifier.width(14.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(item.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+                                    Text(
+                                        item.nextDate?.let { app.fintrack.ui.recurring.whenText(it).replaceFirstChar(Char::uppercase) } ?: "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                app.fintrack.ui.recurring.RecurringAmount(item, hidden)
                             }
                         }
                     }

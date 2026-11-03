@@ -2,7 +2,11 @@
 
 package app.fintrack.ui.editor
 
+import android.Manifest
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -128,6 +132,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.fintrack.domain.logic.KeypadInput
 import app.fintrack.domain.logic.KeypadKey
 import app.fintrack.domain.logic.Money
+import app.fintrack.domain.logic.RecurrenceCalculator
+import app.fintrack.domain.logic.RecurringMode
 import app.fintrack.domain.logic.ValidationError
 import app.fintrack.domain.model.AccountWithBalance
 import app.fintrack.domain.model.TransactionType
@@ -145,8 +151,10 @@ import app.fintrack.ui.components.popOnChange
 import app.fintrack.ui.components.pressScale
 import app.fintrack.ui.components.shakeOnTrigger
 import app.fintrack.ui.theme.AmountStyle
+import app.fintrack.ui.piggy.readableOn
 import app.fintrack.ui.theme.FinTheme
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -179,6 +187,9 @@ fun EditorScreen(
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var showRepeat by remember { mutableStateOf(false) }
+    // Разрешение на уведомления спрашиваем, когда платёж впервые становится регулярным.
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     LaunchedEffect(Unit) {
         vm.eventFlow.collect { e ->
@@ -197,7 +208,7 @@ fun EditorScreen(
     LaunchedEffect(state.loading) {
         if (!state.loading && !keypadModeApplied) {
             keypadModeApplied = true
-            if (state.mode == EditorMode.EDIT) showKeypad = false
+            if (state.mode == EditorMode.EDIT || state.mode == EditorMode.TEMPLATE) showKeypad = false
         }
     }
     // «Назад» сначала сворачивает клавиатуру — как у системной клавиатуры Android.
@@ -215,6 +226,8 @@ fun EditorScreen(
     val accent by animateColorAsState(typeColor(state.type), tween(Motion.MEDIUM_MS), label = "accent")
     val title = when {
         isAdjustment -> "Корректировка баланса"
+        state.mode == EditorMode.TEMPLATE -> "Регулярный платёж"
+        state.repeat != null -> "Новый регулярный платёж"
         state.mode == EditorMode.EDIT -> "Операция"
         state.mode == EditorMode.COPY -> "Копия операции"
         else -> "Новая операция"
@@ -250,6 +263,9 @@ fun EditorScreen(
                             IconButton(onClick = vm::repeatNow) { Icon(Icons.Rounded.Repeat, "Повторить сейчас") }
                         }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, "Удалить") }
+                    }
+                    if (state.mode == EditorMode.TEMPLATE) {
+                        IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, "Удалить регулярный платёж") }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
@@ -328,7 +344,13 @@ fun EditorScreen(
                 }
                 ErrorText(state.errors, ValidationError.ACCOUNT_REQUIRED)
 
-                FieldLabel("Дата и время")
+                FieldLabel(
+                    when {
+                        state.mode == EditorMode.TEMPLATE -> "Следующий платёж"
+                        state.repeat != null -> "Первый платёж"
+                        else -> "Дата и время"
+                    },
+                )
                 Row(
                     modifier = Modifier.padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -347,6 +369,14 @@ fun EditorScreen(
                         shape = MaterialTheme.shapes.small,
                         colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                     )
+                }
+
+                if (state.canRepeat) {
+                    RepeatRow(state.repeat, state.date, accent) {
+                        focusManager.clearFocus()
+                        showKeypad = false
+                        showRepeat = true
+                    }
                 }
 
                 if (!isAdjustment && state.type != TransactionType.TRANSFER) {
@@ -402,7 +432,13 @@ fun EditorScreen(
                 shape = MaterialTheme.shapes.medium,
             ) {
                 Text(
-                    if (state.mode == EditorMode.EDIT) "Сохранить изменения" else "Сохранить",
+                    when {
+                        state.mode == EditorMode.EDIT -> "Сохранить изменения"
+                        state.mode == EditorMode.TEMPLATE -> "Сохранить платёж"
+                        state.repeat != null && !state.date.isAfter(LocalDate.now()) -> "Провести и повторять"
+                        state.repeat != null -> "Запланировать"
+                        else -> "Сохранить"
+                    },
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
@@ -448,10 +484,33 @@ fun EditorScreen(
         )
     }
 
+    if (showRepeat) {
+        RepeatSheet(
+            initial = state.repeat,
+            date = state.date,
+            accent = accent,
+            allowNone = state.mode != EditorMode.TEMPLATE,
+            onDateChange = vm::setDate,
+            onDone = { r ->
+                if (r != null && state.repeat == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                vm.setRepeat(r)
+                showRepeat = false
+            },
+            onDismiss = { showRepeat = false },
+        )
+    }
+
     if (confirmDelete) {
+        val template = state.mode == EditorMode.TEMPLATE
         ConfirmDialog(
-            title = "Удалить операцию?",
-            text = "Баланс счёта будет пересчитан. Действие нельзя отменить.",
+            title = if (template) "Удалить регулярный платёж?" else "Удалить операцию?",
+            text = if (template) {
+                "Новые платежи больше не появятся. Уже проведённые операции останутся в истории."
+            } else {
+                "Баланс счёта будет пересчитан. Действие нельзя отменить."
+            },
             confirm = "Удалить",
             onConfirm = {
                 confirmDelete = false
@@ -459,6 +518,45 @@ fun EditorScreen(
             },
             onDismiss = { confirmDelete = false },
         )
+    }
+}
+
+/** «Повтор: не повторять» или правило с режимом; нажатие открывает настройку. */
+@Composable
+private fun RepeatRow(repeat: RepeatDraft?, date: LocalDate, accent: Color, onClick: () -> Unit) {
+    val active = repeat != null
+    Row(
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .background(if (active) accent.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surfaceContainer)
+            .bounceClick(pressedScale = 0.98f, onClickLabel = "Настроить повтор", onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Rounded.Repeat,
+            contentDescription = null,
+            tint = if (active) accent.readableOn(MaterialTheme.colorScheme.surface) else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (repeat == null) "Не повторять" else RecurrenceCalculator.describe(repeat.toRule(date)),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                when (repeat?.mode) {
+                    null -> "Сделать платёж регулярным: подписка, аренда, зарплата"
+                    RecurringMode.AUTO -> "Проводится автоматически"
+                    RecurringMode.CONFIRM -> "С подтверждением в день платежа"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(Icons.Rounded.KeyboardArrowDown, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

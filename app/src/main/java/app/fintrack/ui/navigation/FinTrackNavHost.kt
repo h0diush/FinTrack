@@ -85,7 +85,9 @@ import app.fintrack.ui.components.pressScale
 import app.fintrack.ui.editor.EditorScreen
 import app.fintrack.ui.history.HistoryScreen
 import app.fintrack.ui.home.HomeScreen
+import app.fintrack.notify.RecurringNotifier
 import app.fintrack.ui.loans.LoanDetailScreen
+import app.fintrack.ui.recurring.RecurringScreen
 import app.fintrack.ui.loans.LoanEditScreen
 import app.fintrack.ui.loans.LoansScreen
 import app.fintrack.ui.piggy.PiggyDetailScreen
@@ -113,10 +115,18 @@ private fun optionalString(name: String) = navArgument(name) {
 private fun isTab(route: String?) = route in Routes.tabs
 
 @Composable
-fun FinTrackNavHost() {
+fun FinTrackNavHost(openRequest: String? = null, onOpenHandled: () -> Unit = {}) {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
+
+    // Нажатие на уведомление о регулярном платеже открывает их список.
+    androidx.compose.runtime.LaunchedEffect(openRequest) {
+        if (openRequest == RecurringNotifier.OPEN_RECURRING) {
+            nav.navigate(Routes.RECURRING) { launchSingleTop = true }
+            onOpenHandled()
+        }
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -172,6 +182,8 @@ fun FinTrackNavHost() {
                     onNewPiggy = { nav.navigate(Routes.piggyEdit()) },
                     onOpenLoans = { nav.navigate(Routes.LOANS) },
                     onOpenLoan = { id -> nav.navigate(Routes.loan(id)) },
+                    onOpenRecurring = { nav.navigate(Routes.RECURRING) },
+                    onOpenRecurringItem = { id -> nav.navigate(Routes.recurringEdit(id)) },
                 )
             }
             composable(Routes.STATS) { StatisticsScreen() }
@@ -200,6 +212,13 @@ fun FinTrackNavHost() {
                     onOpenPiggy = { id -> nav.navigate(Routes.piggy(id)) },
                     onOpenLoan = { id -> nav.navigate(Routes.loan(id)) },
                     onOpenLoans = { nav.navigate(Routes.LOANS) },
+                )
+            }
+            composable(Routes.RECURRING) {
+                RecurringScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpen = { id -> nav.navigate(Routes.recurringEdit(id)) },
+                    onNew = { nav.navigate(Routes.recurringNew()) },
                 )
             }
             composable(Routes.LOANS) {
@@ -247,11 +266,18 @@ fun FinTrackNavHost() {
                     onOpenCategories = { nav.navigate(Routes.CATEGORIES) },
                     onOpenAccounts = { nav.navigate(Routes.ACCOUNTS) },
                     onOpenLoans = { nav.navigate(Routes.LOANS) },
+                    onOpenRecurring = { nav.navigate(Routes.RECURRING) },
                 )
             }
             composable(
                 Routes.EDITOR,
-                arguments = listOf(optionalString("type"), optionalString("id"), optionalString("copyOf")),
+                arguments = listOf(
+                    optionalString("type"),
+                    optionalString("id"),
+                    optionalString("copyOf"),
+                    optionalString("recurringId"),
+                    optionalString("repeat"),
+                ),
             ) {
                 EditorScreen(
                     onClose = { nav.popBackStack() },

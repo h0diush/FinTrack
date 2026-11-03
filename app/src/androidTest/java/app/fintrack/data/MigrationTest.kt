@@ -142,4 +142,30 @@ class MigrationTest {
         }
         db.close()
     }
+
+    @Test
+    fun migrate6To7AddsRecurring() {
+        helper.createDatabase(dbName, 6).apply {
+            execSQL(
+                "INSERT INTO accounts (id, name, type, currencyCode, initialBalanceMinor, color, sortOrder, isArchived, createdAt, excludeFromTotal) " +
+                    "VALUES ('c', 'Карта', 'CARD', 'BYN', 100000, 0, 0, 0, 0, 0)",
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(dbName, 7, true, *Migrations.ALL)
+        db.execSQL(
+            "INSERT INTO recurring VALUES ('r', 'EXPENSE', 'c', NULL, 2500, NULL, 0, NULL, 'Интернет', '', 'MONTH', 1, " +
+                "20000, 0, NULL, NULL, 720, 0, 'CONFIRM', 0, 0)",
+        )
+        db.query("SELECT COUNT(*) FROM recurring").use { c ->
+            c.moveToFirst()
+            assertEquals(1, c.getInt(0))
+        }
+        db.execSQL("DELETE FROM accounts WHERE id = 'c'")
+        db.query("SELECT COUNT(*) FROM recurring").use { c ->
+            c.moveToFirst()
+            assertEquals(0, c.getInt(0))
+        }
+        db.close()
+    }
 }

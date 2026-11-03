@@ -9,6 +9,8 @@ import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
 import app.fintrack.domain.logic.LoanKind
 import app.fintrack.domain.logic.LoanSchedule
+import app.fintrack.domain.logic.RecurringMode
+import app.fintrack.domain.logic.RepeatUnit
 import app.fintrack.domain.model.AccountType
 import app.fintrack.domain.model.CategoryKind
 import app.fintrack.domain.model.TransactionType
@@ -198,6 +200,59 @@ data class LoanEntity(
     val createdAt: Long,
 )
 
+/**
+ * Шаблон регулярного платежа. Проведённые повторы — обычные операции с id «rec:<шаблон>:<день эпохи>».
+ * Удаление счёта (возможно только без операций) удаляет и шаблон; категория — обнуляется.
+ * Даты — дни эпохи; processedCount — сколько первых повторов проведено или пропущено.
+ */
+@Entity(
+    tableName = "recurring",
+    foreignKeys = [
+        ForeignKey(
+            entity = AccountEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["accountId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = AccountEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["toAccountId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = CategoryEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["categoryId"],
+            onDelete = ForeignKey.SET_NULL,
+        ),
+    ],
+    indices = [Index("accountId"), Index("toAccountId"), Index("categoryId")],
+)
+data class RecurringEntity(
+    @PrimaryKey val id: String,
+    val type: TransactionType,
+    val accountId: String,
+    val toAccountId: String?,
+    val amountMinor: Long,
+    val toAmountMinor: Long?,
+    val feeMinor: Long,
+    val categoryId: String?,
+    val payee: String,
+    val comment: String,
+    val unit: RepeatUnit,
+    val repeatInterval: Int,
+    val startDay: Long,
+    val lastDayOfMonth: Boolean,
+    val endDay: Long?,
+    val maxCount: Int?,
+    val minuteOfDay: Int,
+    val processedCount: Int,
+    val mode: RecurringMode,
+    val isPaused: Boolean,
+    val createdAt: Long,
+)
+
 /** Операция по кредиту (id с префиксом «loan:<счёт>:»): платежи и выдача. */
 data class LoanTxRow(
     val id: String,
@@ -266,6 +321,10 @@ class Converters {
     @TypeConverter fun toAccountType(v: String): AccountType = AccountType.valueOf(v)
     @TypeConverter fun fromLoanKind(v: LoanKind): String = v.name
     @TypeConverter fun toLoanKind(v: String): LoanKind = LoanKind.valueOf(v)
+    @TypeConverter fun fromRepeatUnit(v: RepeatUnit): String = v.name
+    @TypeConverter fun toRepeatUnit(v: String): RepeatUnit = RepeatUnit.valueOf(v)
+    @TypeConverter fun fromRecurringMode(v: RecurringMode): String = v.name
+    @TypeConverter fun toRecurringMode(v: String): RecurringMode = RecurringMode.valueOf(v)
     @TypeConverter fun fromLoanSchedule(v: LoanSchedule): String = v.name
     @TypeConverter fun toLoanSchedule(v: String): LoanSchedule = LoanSchedule.valueOf(v)
 }

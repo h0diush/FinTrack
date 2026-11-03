@@ -209,3 +209,27 @@ interface LoanDao {
     @Query(Sql.LOAN_TRANSACTIONS)
     suspend fun loanTransactions(): List<LoanTxRow>
 }
+
+@Dao
+interface RecurringDao {
+    @Query("SELECT * FROM recurring ORDER BY createdAt ASC")
+    fun observeAll(): Flow<List<RecurringEntity>>
+
+    @Query("SELECT * FROM recurring ORDER BY createdAt ASC")
+    suspend fun getAll(): List<RecurringEntity>
+
+    @Query("SELECT * FROM recurring WHERE id = :id")
+    suspend fun get(id: String): RecurringEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: RecurringEntity)
+
+    @Query("UPDATE recurring SET processedCount = :count WHERE id = :id")
+    suspend fun setProcessed(id: String, count: Int)
+
+    @Query("UPDATE recurring SET isPaused = :paused WHERE id = :id")
+    suspend fun setPaused(id: String, paused: Boolean)
+
+    @Query("DELETE FROM recurring WHERE id = :id")
+    suspend fun delete(id: String)
+}

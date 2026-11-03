@@ -75,5 +75,33 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+    /** 6 → 7: регулярные платежи (шаблоны). Проведённые повторы — обычные операции. */
+    const val CREATE_RECURRING = "CREATE TABLE IF NOT EXISTS `recurring` (" +
+        "`id` TEXT NOT NULL, `type` TEXT NOT NULL, `accountId` TEXT NOT NULL, `toAccountId` TEXT, " +
+        "`amountMinor` INTEGER NOT NULL, `toAmountMinor` INTEGER, `feeMinor` INTEGER NOT NULL, `categoryId` TEXT, " +
+        "`payee` TEXT NOT NULL, `comment` TEXT NOT NULL, `unit` TEXT NOT NULL, `repeatInterval` INTEGER NOT NULL, " +
+        "`startDay` INTEGER NOT NULL, `lastDayOfMonth` INTEGER NOT NULL, `endDay` INTEGER, `maxCount` INTEGER, " +
+        "`minuteOfDay` INTEGER NOT NULL, `processedCount` INTEGER NOT NULL, `mode` TEXT NOT NULL, " +
+        "`isPaused` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`), " +
+        "FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+        "FOREIGN KEY(`toAccountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+        "FOREIGN KEY(`categoryId`) REFERENCES `categories`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )"
+
+    const val CREATE_RECURRING_INDEX_ACCOUNT =
+        "CREATE INDEX IF NOT EXISTS `index_recurring_accountId` ON `recurring` (`accountId`)"
+    const val CREATE_RECURRING_INDEX_TO_ACCOUNT =
+        "CREATE INDEX IF NOT EXISTS `index_recurring_toAccountId` ON `recurring` (`toAccountId`)"
+    const val CREATE_RECURRING_INDEX_CATEGORY =
+        "CREATE INDEX IF NOT EXISTS `index_recurring_categoryId` ON `recurring` (`categoryId`)"
+
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(CREATE_RECURRING)
+            db.execSQL(CREATE_RECURRING_INDEX_ACCOUNT)
+            db.execSQL(CREATE_RECURRING_INDEX_TO_ACCOUNT)
+            db.execSQL(CREATE_RECURRING_INDEX_CATEGORY)
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
 }
