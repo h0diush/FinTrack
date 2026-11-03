@@ -40,6 +40,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -563,6 +568,9 @@ private fun LimitEditorSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val monthLabel = Periods.monthLabel(state.month, LocalDate.now())
+    // Клавиатура открыта — подсказки прячем, чтобы сумма и кнопка помещались над ней.
+    val keyboardOpen = WindowInsets.isImeVisible
+    val selected = editor.categoryId?.let { state.allCategories[it] }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             Modifier
@@ -573,6 +581,13 @@ private fun LimitEditorSheet(
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            // Верх (заголовок и категории) прокручивается и сжимается; поле суммы и кнопка — всегда видны.
+            Column(
+                Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
             Text(
                 when {
                     editor.overall -> "Общий бюджет на месяц"
@@ -611,22 +626,33 @@ private fun LimitEditorSheet(
                     }
                 }
             }
+            }
 
             val err = editor.error
             OutlinedTextField(
                 value = editor.amountText,
                 onValueChange = onAmount,
-                label = { Text("Лимит в месяц") },
+                label = {
+                    Text(
+                        when {
+                            editor.overall -> "Лимит на все расходы в месяц"
+                            selected != null -> "Лимит «${selected.name}» в месяц"
+                            else -> "Лимит в месяц"
+                        },
+                        maxLines = 1,
+                    )
+                },
                 suffix = { Text(state.currency) },
                 isError = err != null,
                 supportingText = if (err != null) ({ Text(err) }) else ({ Text("Можно ввести выражение: 300+150") }),
                 singleLine = true,
                 shape = MaterialTheme.shapes.medium,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { onSave() }),
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Row(
+            if (!keyboardOpen) Row(
                 Modifier
                     .fillMaxWidth()
                     .clip(MaterialTheme.shapes.medium)
@@ -646,20 +672,32 @@ private fun LimitEditorSheet(
                 Switch(checked = editor.rollover, onCheckedChange = onRollover)
             }
 
-            Text(
-                "Действует с месяца «$monthLabel» и далее. Прошлые месяцы не изменятся.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (!keyboardOpen) {
+                Text(
+                    "Действует с месяца «$monthLabel» и далее. Прошлые месяцы не изменятся.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             Button(
                 onClick = onSave,
+                enabled = editor.overall || !editor.isNew || editor.categoryId != null,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
                 shape = MaterialTheme.shapes.medium,
-            ) { Text("Сохранить", style = MaterialTheme.typography.titleMedium) }
-            if (!editor.isNew) {
+            ) {
+                Text(
+                    when {
+                        !editor.isNew -> "Сохранить"
+                        !editor.overall && editor.categoryId == null -> "Выберите категорию"
+                        else -> "Добавить лимит"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+            if (!editor.isNew && !keyboardOpen) {
                 TextButton(onClick = onRemove, modifier = Modifier.fillMaxWidth()) {
                     Text("Убрать лимит с месяца «$monthLabel»", color = MaterialTheme.colorScheme.error)
                 }
