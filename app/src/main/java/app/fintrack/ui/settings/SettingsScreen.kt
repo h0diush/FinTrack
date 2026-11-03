@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -63,6 +64,10 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.LockReset
+import androidx.compose.material.icons.rounded.Fingerprint
+import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.CurrencyExchange
 import androidx.compose.ui.semantics.Role
 import app.fintrack.ui.components.CurrencyPickerDialog
@@ -75,9 +80,27 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class SettingsViewModel @Inject constructor(private val repo: SettingsRepository) : ViewModel() {
+class SettingsViewModel @Inject constructor(
+    private val repo: SettingsRepository,
+    private val security: app.fintrack.data.repository.SecurityRepository,
+) : ViewModel() {
     val settings: StateFlow<AppSettings> =
         repo.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettings())
+
+    val securitySettings: StateFlow<app.fintrack.data.repository.SecuritySettings> =
+        security.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), app.fintrack.data.repository.SecuritySettings())
+
+    fun setBiometric(enabled: Boolean) {
+        viewModelScope.launch { security.setBiometric(enabled) }
+    }
+
+    fun setLockTimeout(ms: Long) {
+        viewModelScope.launch { security.setTimeout(ms) }
+    }
+
+    fun setSecureScreen(enabled: Boolean) {
+        viewModelScope.launch { security.setSecureScreen(enabled) }
+    }
 
     fun setTheme(mode: ThemeMode) {
         viewModelScope.launch { repo.setTheme(mode) }
@@ -110,9 +133,13 @@ fun SettingsScreen(
     onOpenLoans: () -> Unit,
     onOpenRecurring: () -> Unit,
     onOpenRates: () -> Unit,
+    onPin: (mode: String) -> Unit,
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val s by vm.settings.collectAsStateWithLifecycle()
+    val sec by vm.securitySettings.collectAsStateWithLifecycle()
+    val biometricAvailable = app.fintrack.ui.lock.Biometrics.available(androidx.compose.ui.platform.LocalContext.current)
+    var showTimeout by remember { mutableStateOf(false) }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val toggleBudgetAlerts = { enabled: Boolean ->
         if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -204,6 +231,62 @@ fun SettingsScreen(
 
             Spacer(Modifier.padding(8.dp))
 
+            Text(
+                "Защита",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
+            )
+            AppCard(modifier = Modifier.fillMaxWidth()) {
+                Column {
+                    SwitchRow(
+                        icon = Icons.Rounded.Lock,
+                        tint = Color(0xFF2F55E4),
+                        title = "Вход по PIN-коду",
+                        subtitle = if (sec.pinSet) "Приложение закрывается PIN-кодом" else "Код из 4 цифр при открытии приложения",
+                        checked = sec.pinSet,
+                        onChange = { on -> onPin(if (on) "SET" else "DISABLE") },
+                    )
+                    androidx.compose.animation.AnimatedVisibility(visible = sec.pinSet) {
+                        Column {
+                            if (biometricAvailable) {
+                                SettingsDivider()
+                                SwitchRow(
+                                    icon = Icons.Rounded.Fingerprint,
+                                    tint = Color(0xFF10B981),
+                                    title = "Вход по отпечатку или лицу",
+                                    subtitle = "Быстрее PIN-кода; PIN остаётся запасным",
+                                    checked = sec.biometric,
+                                    onChange = vm::setBiometric,
+                                )
+                            }
+                            SettingsDivider()
+                            SettingRow(
+                                Icons.Rounded.Timer,
+                                "Блокировать",
+                                app.fintrack.domain.logic.LockPolicy.TIMEOUTS.firstOrNull { it.second == sec.timeoutMs }?.first?.let {
+                                    if (it == "Сразу") "Сразу после сворачивания" else "$it после сворачивания"
+                                } ?: "После сворачивания",
+                                Color(0xFFF59E0B),
+                            ) { showTimeout = true }
+                            SettingsDivider()
+                            SettingRow(Icons.Rounded.LockReset, "Сменить PIN-код", "Нужно ввести текущий", Color(0xFF6D4AFF)) { onPin("CHANGE") }
+                        }
+                    }
+                    SettingsDivider()
+                    SwitchRow(
+                        icon = Icons.Rounded.VisibilityOff,
+                        tint = Color(0xFF475569),
+                        title = "Скрывать в недавних приложениях",
+                        subtitle = "Суммы не видны в списке приложений; скриншоты и запись экрана запрещены",
+                        checked = sec.secureScreen,
+                        onChange = vm::setSecureScreen,
+                    )
+                }
+            }
+
+            Spacer(Modifier.padding(8.dp))
+
             AppCard(modifier = Modifier.fillMaxWidth()) {
                 Column {
                     SettingRow(
@@ -216,6 +299,32 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    if (showTimeout) {
+        AlertDialog(
+            onDismissRequest = { showTimeout = false },
+            title = { Text("Блокировать") },
+            text = {
+                Column {
+                    app.fintrack.domain.logic.LockPolicy.TIMEOUTS.forEach { (label, ms) ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(MaterialTheme.shapes.small)
+                                .bounceClick(pressedScale = 0.98f, role = Role.RadioButton) { vm.setLockTimeout(ms); showTimeout = false }
+                                .padding(vertical = 12.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.material3.RadioButton(selected = sec.timeoutMs == ms, onClick = null)
+                            Spacer(Modifier.width(12.dp))
+                            Text(if (ms == 0L) "Сразу после сворачивания" else "$label после сворачивания")
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showTimeout = false }) { Text("Закрыть") } },
+        )
     }
 
     if (showTheme) {
@@ -262,6 +371,27 @@ fun SettingsScreen(
 @Composable
 private fun SettingsDivider() {
     HorizontalDivider(modifier = Modifier.padding(start = 72.dp), color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+/** Строка с переключателем: нажатие по всей строке тоже переключает. */
+@Composable
+private fun SwitchRow(icon: ImageVector, tint: Color, title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .bounceClick(pressedScale = 0.98f, role = Role.Switch) { onChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBadge(icon, tint, size = 40.dp)
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(8.dp))
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
 }
 
 @Composable

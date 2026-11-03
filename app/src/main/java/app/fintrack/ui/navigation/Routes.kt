@@ -19,6 +19,7 @@ object Routes {
     const val PIGGY_EDIT = "piggy_edit?id={id}"
     const val RECURRING = "recurring"
     const val RATES = "rates"
+    const val PIN_SETUP = "pin_setup?mode={mode}"
     const val LOANS = "loans"
     const val LOAN = "loan/{id}"
     const val LOAN_EDIT = "loan_edit?id={id}&kind={kind}"
@@ -47,6 +48,9 @@ object Routes {
     fun piggy(id: String) = "piggy/${Uri.encode(id)}"
 
     fun piggyEdit(id: String? = null) = "piggy_edit" + query("id" to id)
+
+    /** Установка (SET), смена (CHANGE) или снятие (DISABLE) PIN-кода. */
+    fun pinSetup(mode: String) = "pin_setup" + query("mode" to mode)
 
     fun loan(id: String) = "loan/${Uri.encode(id)}"
 

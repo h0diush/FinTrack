@@ -19,14 +19,14 @@ Kotlin 2.0.21, AGP 8.13.2, Gradle 8.13 (нужен **JDK 21**, на JDK 25 не 
 в Android Studio: Settings → Build Tools → Gradle → Gradle JDK = 21 / встроенный JBR),
 compileSdk/targetSdk 35, minSdk 29, Java/JVM target 17.
 Jetpack Compose (BOM 2024.12.01, Material 3), Navigation Compose 2.8.5, Room 2.6.1 (KSP),
-Hilt 2.52, DataStore 1.1.1, WorkManager 2.9.1. Шрифт Inter (`res/font`), иконки Material Icons Rounded (extended).
-Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.11.0 (versionCode 12).
+Hilt 2.52, DataStore 1.1.1, WorkManager 2.9.1, Biometric 1.1.0. Шрифт Inter (`res/font`), иконки Material Icons Rounded (extended).
+Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.12.0 (versionCode 13).
 
 ## Сборка и проверки (Windows)
 
 ```
 gradlew.bat assembleRelease          # APK: app\build\outputs\apk\release\app-release.apk
-gradlew.bat testDebugUnitTest        # JVM-тесты доменной логики (app/src/test), сейчас 104
+gradlew.bat testDebugUnitTest        # JVM-тесты доменной логики (app/src/test), сейчас 109
 gradlew.bat connectedDebugAndroidTest # Room и миграции на телефоне/эмуляторе (app/src/androidTest)
 python tools\verify_sql.py           # SQL из Sql.kt/Migrations.kt на настоящей SQLite
 ```
@@ -49,16 +49,17 @@ app/src/main/java/app/fintrack/
                              Loans (LoanCalculator: аннуитет/дифференцированный график),
                              Recurring (RecurrenceCalculator: даты повторов, описание по-русски),
                              BudgetAlerts (когда слать уведомление о пороге бюджета),
-                             Currencies (CurrencyConverter — пересчёт через BYN, NbrbParser)
+                             Currencies (CurrencyConverter — пересчёт через BYN, NbrbParser),
+                             AppLock (PinHasher — PBKDF2, LockPolicy — тайм-аут и пауза после ошибок)
   data/db/                   Entities.kt, Daos.kt, Sql.kt (все сложные запросы), Migrations.kt,
                              FinTrackDatabase.kt (version 8), DefaultData.kt (стартовые категории)
-  data/repository/           Account, Transaction, Category, Settings, Stats, Budget, Deposit, Piggy, Loan, Recurring, Rates
+  data/repository/           Account, Transaction, Category, Settings, Stats, Budget, Deposit, Piggy, Loan, Recurring, Rates, Security
   di/AppModule.kt            Room + миграции, DataStore
   notify/                    RecurringWorker (WorkManager, ежедневно ~9:00), RecurringNotifier (канал, уведомления),
                              RecurringActionReceiver (кнопки «Провести»/«Пропустить» в уведомлении),
                              BudgetAlertMonitor (следит за бюджетом месяца, запускается в FinTrackApp)
   ui/                        theme, components, navigation, charts,
-                             home, editor, history, stats, budget, accounts, piggy, loans, recurring, rates, categories, settings
+                             home, editor, history, stats, budget, accounts, piggy, loans, recurring, rates, lock, categories, settings
 ```
 
 MVVM: Screen (Compose) → HiltViewModel (StateFlow) → Repository → Room/DataStore.
@@ -108,6 +109,15 @@ UI зависит от доменных моделей, не от сущност
 - Уведомления бюджета: `BudgetAlertMonitor` считает уровни тем же `BudgetOverviewBuilder`, что экран «Бюджет»,
   и шлёт уведомление только при росте уровня (`BudgetAlerts.evaluate`); показанные уровни месяца хранятся
   в DataStore. Первая проверка (новая установка/версия) запоминает состояние молча.
+
+## Блокировка приложения
+
+- PIN из 4 цифр: в DataStore только соль и хеш PBKDF2 (`SecurityRepository`), сам PIN не хранится.
+  После 5 ошибок — растущая пауза (`LockPolicy.lockoutMs`). Восстановления нет (только очистка данных).
+- `MainActivity` — `FragmentActivity` (нужно для `BiometricPrompt`). Состояние `LockState` живёт в
+  `SecurityRepository`: при запуске процесса с PIN — LOCKED; `onStop` запоминает время, `onStart` блокирует
+  по тайм-ауту. `LockScreen` рисуется поверх `FinTrackNavHost` (навигация не сбрасывается, семантика скрыта).
+- «Скрывать в недавних» — FLAG_SECURE (и запрет скриншотов), отдельная настройка, по умолчанию выключена.
 
 ## База данных и миграции
 
@@ -162,10 +172,11 @@ UI зависит от доменных моделей, не от сущност
 0.9.1 — уведомления о порогах бюджета (50/80/100 %, переключатель в настройках).
 0.10 — курсы валют (НБРБ + ручные), итог баланса в выбранной валюте, статистика с пересчётом.
 0.11 — доход/расход в другой валюте с пересчётом в валюту счёта; окно лимита бюджета над клавиатурой.
+0.12 — блокировка PIN-кодом и отпечатком, тайм-аут, защита от подбора, скрытие в недавних.
 
 ## Дальше по плану (обсуждать с пользователем перед началом)
 
 - Этап 4 (остаток): автопополнение копилок (по сути есть: регулярный перевод в копилку).
-- Этап 5 (пользователь отложил в конец): шифрованные резервные копии (Android Keystore), экспорт CSV/XLSX/PDF, импорт CSV, PIN/биометрия.
+- Этап 5: экспорт CSV/XLSX/PDF, импорт CSV. Шифрованные резервные копии — пользователь отложил в самый конец.
 - Этап 6: виджет, полировка.
 - Предлагалось: налог на проценты по вкладу, ежемесячное пополнение вклада.

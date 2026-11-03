@@ -87,6 +87,7 @@ import app.fintrack.ui.history.HistoryScreen
 import app.fintrack.ui.home.HomeScreen
 import app.fintrack.notify.RecurringNotifier
 import app.fintrack.ui.loans.LoanDetailScreen
+import app.fintrack.ui.lock.PinSetupScreen
 import app.fintrack.ui.rates.RatesScreen
 import app.fintrack.ui.recurring.RecurringScreen
 import app.fintrack.ui.loans.LoanEditScreen
@@ -220,6 +221,13 @@ fun FinTrackNavHost(openRequest: String? = null, onOpenHandled: () -> Unit = {})
                 )
             }
             composable(Routes.RATES) { RatesScreen(onBack = { nav.popBackStack() }) }
+            composable(Routes.PIN_SETUP, arguments = listOf(optionalString("mode"))) {
+                val context = androidx.compose.ui.platform.LocalContext.current
+                PinSetupScreen(onDone = { message ->
+                    message?.let { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_SHORT).show() }
+                    nav.popBackStack()
+                })
+            }
             composable(Routes.RECURRING) {
                 RecurringScreen(
                     onBack = { nav.popBackStack() },
@@ -274,6 +282,7 @@ fun FinTrackNavHost(openRequest: String? = null, onOpenHandled: () -> Unit = {})
                     onOpenLoans = { nav.navigate(Routes.LOANS) },
                     onOpenRecurring = { nav.navigate(Routes.RECURRING) },
                     onOpenRates = { nav.navigate(Routes.RATES) },
+                    onPin = { mode -> nav.navigate(Routes.pinSetup(mode)) },
                 )
             }
             composable(
