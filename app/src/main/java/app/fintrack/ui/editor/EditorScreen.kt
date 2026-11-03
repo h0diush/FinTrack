@@ -305,7 +305,7 @@ fun EditorScreen(
             ) {
                 // Покупка в другой валюте: сколько на самом деле списано со счёта.
                 androidx.compose.animation.AnimatedVisibility(
-                    visible = state.isForeign,
+                    visible = state.showsDebit,
                     enter = expandVertically(tween(Motion.MEDIUM_MS)) + fadeIn(),
                     exit = shrinkVertically(tween(Motion.SHORT_MS)) + fadeOut(tween(Motion.SHORT_MS)),
                 ) {
@@ -322,6 +322,8 @@ fun EditorScreen(
                             Text(
                                 when {
                                     debitError -> ValidationError.DEBIT_REQUIRED.message
+                                    converted != null && state.repeat != null ->
+                                        "За первый платёж по курсу — ${Money.format(converted, state.currency)}. Дальше — по курсу на день платежа"
                                     converted != null -> "По курсу — ${Money.format(converted, state.currency)}. Если банк списал другую сумму, впишите её"
                                     else -> "Курса ${state.entryCurrency} нет — впишите сумму из банка или задайте курс в настройках"
                                 },
@@ -801,11 +803,14 @@ private fun AmountDisplay(
                     MaterialTheme.colorScheme.onSurfaceVariant
             }
             // Покупка в другой валюте — сразу видно, сколько это в валюте счёта.
-            state.isForeign && state.debitText.isNotBlank() ->
+            state.showsDebit && state.debitText.isNotBlank() ->
                 (Money.parse(state.debitText, state.currency)?.let { "Со счёта: " + Money.format(it, state.currency) } ?: "Проверьте сумму списания") to
                     MaterialTheme.colorScheme.onSurfaceVariant
             state.isForeign && converted != null ->
-                "≈ ${Money.format(converted, state.currency)} по курсу" to MaterialTheme.colorScheme.onSurfaceVariant
+                "≈ ${Money.format(converted, state.currency)} по курсу" + (if (state.repeat != null) " сегодня" else "") to
+                    MaterialTheme.colorScheme.onSurfaceVariant
+            state.isForeign && state.foreignMinor != null && state.repeat != null ->
+                "Курса ${state.entryCurrency} пока нет — при проведении спросим сумму" to MaterialTheme.colorScheme.onSurfaceVariant
             state.isForeign && state.foreignMinor != null ->
                 "Нет курса ${state.entryCurrency} — укажите сумму списания" to MaterialTheme.colorScheme.error
             else -> null

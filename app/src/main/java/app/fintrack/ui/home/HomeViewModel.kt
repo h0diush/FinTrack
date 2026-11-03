@@ -215,8 +215,9 @@ class HomeViewModel @Inject constructor(
         recurringRepo.observeAll(),
         accounts.observeAccounts(),
         categories.observeAll(),
-    ) { list, accs, cats ->
-        val items = RecurringItems.build(list, accs, cats, today).filter { !it.payment.isPaused && it.nextDate != null }
+        rates.state,
+    ) { list, accs, cats, r ->
+        val items = RecurringItems.build(list, accs, cats, today, r.converter).filter { !it.payment.isPaused && it.nextDate != null }
         val pending = items.filter { it.isPending }.sortedBy { it.nextDate }
         val soon = items.filter { !it.isPending && it.nextDate!! <= today.plusDays(7) }.sortedBy { it.nextDate }.take(3)
         HomeRecurring(loading = false, pending = pending, soon = soon, count = items.size)

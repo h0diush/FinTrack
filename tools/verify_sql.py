@@ -384,6 +384,13 @@ def main():
     row = db.execute(q["DETAILS_BY_ID"], {"id": "fx1"}).fetchone()
     check("детали операции содержат исходную сумму", (row[14], row[15]), (2000, "USD"))
 
+    # 13г. Миграция 8→9: валюта регулярного платежа; старые шаблоны — в валюте счёта
+    db.execute(m["ADD_RECURRING_FOREIGN"])
+    col = [(r[1], r[2], r[3]) for r in db.execute("PRAGMA table_info(recurring)")][-1]
+    check("миграция 8→9: колонка foreignCurrency", col, ("foreignCurrency", "TEXT", 0))
+    (n_fc,) = db.execute("SELECT COUNT(*) FROM recurring WHERE foreignCurrency IS NOT NULL").fetchone()
+    check("миграция 8→9: у старых шаблонов валюты нет", n_fc, 0)
+
     # 13. Внешний ключ не даёт удалить счёт с операциями
     try:
         db.execute("DELETE FROM accounts WHERE id = 'cash'")

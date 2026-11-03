@@ -114,7 +114,17 @@ object Migrations {
         }
     }
 
+    /** 8 → 9: валюта регулярного платежа (подписка в USD с карты в BYN). Старые шаблоны — в валюте счёта. */
+    const val ADD_RECURRING_FOREIGN = "ALTER TABLE `recurring` ADD COLUMN `foreignCurrency` TEXT"
+
+    val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(ADD_RECURRING_FOREIGN)
+        }
+    }
+
     val ALL: Array<Migration> = arrayOf(
         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+        MIGRATION_8_9,
     )
 }

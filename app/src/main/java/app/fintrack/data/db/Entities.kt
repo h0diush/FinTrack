@@ -254,6 +254,8 @@ data class RecurringEntity(
     val mode: RecurringMode,
     val isPaused: Boolean,
     val createdAt: Long,
+    /** Валюта платежа, если не валюта счёта; тогда amountMinor — в ней. Добавлено в версии 9. */
+    val foreignCurrency: String? = null,
 )
 
 /** Операция по кредиту (id с префиксом «loan:<счёт>:»): платежи и выдача. */

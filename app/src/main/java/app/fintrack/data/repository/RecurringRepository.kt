@@ -13,6 +13,7 @@ import app.fintrack.domain.logic.ValidTransaction
 import app.fintrack.domain.model.AccountType
 import app.fintrack.domain.model.TransactionType
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.time.ZoneId
@@ -26,6 +27,7 @@ enum class RecurringPostResult(val message: String?) {
     ACCOUNT_INVALID("Счёт платежа в архиве или удалён — измените платёж"),
     CATEGORY_INVALID("Категория платежа удалена — выберите другую"),
     AMOUNT_INVALID("Введите сумму больше нуля"),
+    NO_RATE("Нет курса валюты — нажмите «Другая сумма» и укажите, сколько списано"),
     NOT_FOUND("Платёж не найден"),
 }
 
@@ -45,6 +47,7 @@ data class DueOccurrence(val recurringId: String, val title: String, val amountM
 @Singleton
 class RecurringRepository @Inject constructor(
     private val db: FinTrackDatabase,
+    private val rates: RatesRepository,
 ) {
     private val dao = db.recurringDao()
     private val txDao = db.transactionDao()
@@ -67,13 +70,17 @@ class RecurringRepository @Inject constructor(
         rule: RepeatRule,
         minuteOfDay: Int,
         mode: RecurringMode,
+        /** Сумма и валюта платежа, если не в валюте счёта. */
+        foreign: Pair<Long, String>? = null,
+        /** Сколько списано за первый платёж (в валюте счёта), если он проводится сразу; null — по курсу. */
+        firstDebitMinor: Long? = null,
         today: LocalDate = LocalDate.now(),
     ): String = db.withTransaction {
         val id = UUID.randomUUID().toString()
-        dao.upsert(entity(id, tx, payee, comment, rule, minuteOfDay, mode, processed = 0, paused = false, createdAt = System.currentTimeMillis()))
+        dao.upsert(entity(id, tx, payee, comment, rule, minuteOfDay, mode, processed = 0, paused = false, createdAt = System.currentTimeMillis(), foreign = foreign))
         if (!rule.start.isAfter(today)) {
             val first = dao.get(id)!!.toDomain()
-            if (post(first, 0, null) == RecurringPostResult.OK) dao.setProcessed(id, 1)
+            if (post(first, 0, firstDebitMinor) == RecurringPostResult.OK) dao.setProcessed(id, 1)
         }
         if (mode == RecurringMode.AUTO) processOne(dao.get(id)!!.toDomain(), today)
         id
@@ -91,9 +98,10 @@ class RecurringRepository @Inject constructor(
         rule: RepeatRule,
         minuteOfDay: Int,
         mode: RecurringMode,
+        foreign: Pair<Long, String>? = null,
     ) = db.withTransaction {
         val old = dao.get(id) ?: return@withTransaction
-        dao.upsert(entity(id, tx, payee, comment, rule, minuteOfDay, mode, processed = 0, paused = old.isPaused, createdAt = old.createdAt))
+        dao.upsert(entity(id, tx, payee, comment, rule, minuteOfDay, mode, processed = 0, paused = old.isPaused, createdAt = old.createdAt, foreign = foreign))
     }
 
     suspend fun setPaused(id: String, paused: Boolean) = dao.setPaused(id, paused)
@@ -101,7 +109,10 @@ class RecurringRepository @Inject constructor(
     /** Удалить шаблон. Уже проведённые операции остаются в истории. */
     suspend fun delete(id: String) = dao.delete(id)
 
-    /** Провести самый ранний наступивший повтор, при желании с другой суммой. */
+    /**
+     * Провести самый ранний наступивший повтор, при желании с другой суммой —
+     * она в валюте счёта (для платежа в другой валюте это «сколько списано»).
+     */
     suspend fun confirmNext(id: String, amountMinor: Long? = null, today: LocalDate = LocalDate.now()): RecurringPostResult =
         db.withTransaction {
             val r = dao.get(id)?.toDomain() ?: return@withTransaction RecurringPostResult.NOT_FOUND
@@ -153,7 +164,11 @@ class RecurringRepository @Inject constructor(
         return posted
     }
 
-    /** Записать повтор k как операцию. Повтор той же даты не дублируется. */
+    /**
+     * Записать повтор k как операцию. Повтор той же даты не дублируется.
+     * [amountOverride] — сумма в валюте счёта. Платёж в другой валюте пересчитывается по текущему курсу,
+     * исходная сумма сохраняется в операции справочно.
+     */
     private suspend fun post(r: RecurringPayment, k: Int, amountOverride: Long?): RecurringPostResult {
         val date = RecurrenceCalculator.dateOf(r.rule, k) ?: return RecurringPostResult.NOT_DUE
         val id = "rec:${r.id}:${date.toEpochDay()}"
@@ -165,7 +180,13 @@ class RecurringRepository @Inject constructor(
         if (r.type != TransactionType.TRANSFER && r.categoryId?.let { categoryDao.getById(it) } == null) {
             return RecurringPostResult.CATEGORY_INVALID
         }
-        val amount = amountOverride ?: r.amountMinor
+        val foreign = r.foreignCurrency?.takeIf { it != account.currencyCode && r.type != TransactionType.TRANSFER }
+        val amount = when {
+            amountOverride != null -> amountOverride
+            foreign != null -> rates.state.first().converter.convert(r.amountMinor, foreign, account.currencyCode)
+                ?: return RecurringPostResult.NO_RATE
+            else -> r.amountMinor
+        }
         if (amount <= 0 || amount > TransactionValidator.MAX_AMOUNT_MINOR) return RecurringPostResult.AMOUNT_INVALID
         val sameCurrency = to == null || to.currencyCode == account.currencyCode
         val at = date.atStartOfDay(ZoneId.systemDefault()).plusMinutes(r.minuteOfDay.toLong()).toInstant().toEpochMilli()
@@ -190,6 +211,8 @@ class RecurringRepository @Inject constructor(
                 isFavorite = false,
                 createdAt = now,
                 updatedAt = now,
+                originalAmountMinor = if (foreign != null) r.amountMinor else null,
+                originalCurrency = foreign,
             ),
         )
         return RecurringPostResult.OK
@@ -205,7 +228,9 @@ class RecurringRepository @Inject constructor(
         return r.categoryId?.let { categoryDao.getById(it) }?.name ?: "Регулярный платёж"
     }
 
-    private suspend fun currency(r: RecurringPayment): String = accountDao.getById(r.accountId)?.currencyCode ?: ""
+    /** Валюта суммы шаблона: валюта платежа или счёта. */
+    private suspend fun currency(r: RecurringPayment): String =
+        r.foreignCurrency ?: accountDao.getById(r.accountId)?.currencyCode ?: ""
 
     private fun entity(
         id: String,
@@ -218,12 +243,13 @@ class RecurringRepository @Inject constructor(
         processed: Int,
         paused: Boolean,
         createdAt: Long,
+        foreign: Pair<Long, String>?,
     ) = RecurringEntity(
         id = id,
         type = tx.type,
         accountId = tx.accountId,
         toAccountId = tx.toAccountId,
-        amountMinor = tx.amountMinor,
+        amountMinor = foreign?.first ?: tx.amountMinor,
         toAmountMinor = tx.toAmountMinor,
         feeMinor = tx.feeMinor,
         categoryId = tx.categoryId,
@@ -240,6 +266,7 @@ class RecurringRepository @Inject constructor(
         mode = mode,
         isPaused = paused,
         createdAt = createdAt,
+        foreignCurrency = foreign?.second?.takeIf { tx.type != TransactionType.TRANSFER },
     )
 
     private fun RecurringEntity.toDomain() = RecurringPayment(
@@ -265,5 +292,6 @@ class RecurringRepository @Inject constructor(
         processedCount = processedCount,
         mode = mode,
         isPaused = isPaused,
+        foreignCurrency = foreignCurrency,
     )
 }

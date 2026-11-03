@@ -80,7 +80,13 @@ data class RecurringItem(
     val categoryIconKey: String?,
     val color: Long?,
     val toPiggy: Boolean,
+    /** Валюта суммы шаблона: валюта платежа (USD) или счёта. */
     val currency: String,
+    val accountCurrency: String,
+    /** Платёж в другой валюте: сколько это в валюте счёта по текущему курсу (null — курса нет). */
+    val approxMinor: Long?,
+    /** Валюта, в которой посчитан [perMonthMinor]: валюта счёта, если есть курс. */
+    val monthlyCurrency: String,
     val nextDate: LocalDate?,
     val dueCount: Int,
     val perMonthMinor: Long,
@@ -89,6 +95,7 @@ data class RecurringItem(
 ) {
     val id: String get() = payment.id
     val isPending: Boolean get() = dueCount > 0 && !payment.isPaused
+    val isForeign: Boolean get() = currency != accountCurrency
 }
 
 /** Сводка «в месяц» по валюте. */
@@ -101,6 +108,7 @@ object RecurringItems {
         accounts: List<AccountWithBalance>,
         categories: List<Category>,
         today: LocalDate = LocalDate.now(),
+        converter: app.fintrack.domain.logic.CurrencyConverter? = null,
     ): List<RecurringItem> {
         val accById = accounts.associateBy { it.account.id }
         val catById = categories.associateBy { it.id }
@@ -123,6 +131,11 @@ object RecurringItems {
             val broken = acc == null || acc.isArchived ||
                 (transfer && (to == null || to.isArchived)) ||
                 (!transfer && cat == null)
+            val accCur = acc?.currencyCode ?: ""
+            val cur = r.foreignCurrency?.takeIf { it != accCur && !transfer } ?: accCur
+            val approx = if (cur != accCur) converter?.convert(r.amountMinor, cur, accCur) else null
+            val perMonth = RecurrenceCalculator.perMonthMinor(r.amountMinor, r.rule)
+            val perMonthAcc = if (cur != accCur) converter?.convert(perMonth, cur, accCur) else perMonth
             RecurringItem(
                 payment = r,
                 title = title,
@@ -130,10 +143,13 @@ object RecurringItems {
                 categoryIconKey = cat?.iconKey,
                 color = if (transfer) null else cat?.color,
                 toPiggy = to?.type == AccountType.PIGGY,
-                currency = acc?.currencyCode ?: "",
+                currency = cur,
+                accountCurrency = accCur,
+                approxMinor = approx,
+                monthlyCurrency = if (perMonthAcc != null) accCur else cur,
                 nextDate = r.nextDate,
                 dueCount = r.dueCount(today),
-                perMonthMinor = RecurrenceCalculator.perMonthMinor(r.amountMinor, r.rule),
+                perMonthMinor = perMonthAcc ?: perMonth,
                 broken = broken,
             )
         }
@@ -142,7 +158,7 @@ object RecurringItems {
     /** Сколько в среднем уходит и приходит в месяц по активным платежам. Переводы не считаются. */
     fun monthly(items: List<RecurringItem>, baseCurrency: String): List<MonthlyLine> =
         items.filter { !it.payment.isPaused && it.nextDate != null && it.payment.type != TransactionType.TRANSFER }
-            .groupBy { it.currency }
+            .groupBy { it.monthlyCurrency }
             .map { (c, list) ->
                 MonthlyLine(
                     currency = c,
@@ -185,14 +201,24 @@ fun RecurringAmount(item: RecurringItem, hidden: Boolean, modifier: Modifier = M
         TransactionType.EXPENSE -> "−" to MaterialTheme.colorScheme.onSurface
         else -> "" to fin.transfer.readableOn(surface)
     }
-    Text(
-        if (hidden) Money.masked(item.currency) else sign + Money.format(item.payment.amountMinor, item.currency),
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.SemiBold,
-        color = color,
-        maxLines = 1,
-        modifier = modifier,
-    )
+    Column(modifier, horizontalAlignment = Alignment.End) {
+        Text(
+            if (hidden) Money.masked(item.currency) else sign + Money.format(item.payment.amountMinor, item.currency),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = color,
+            maxLines = 1,
+        )
+        // Платёж в другой валюте — сколько это сейчас в валюте счёта
+        if (item.isForeign && !hidden) {
+            Text(
+                item.approxMinor?.let { "≈ " + Money.format(it, item.accountCurrency) } ?: "нет курса",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
 }
 
 /** Карточка регулярного платежа: иконка, название, правило, ближайшая дата, сумма. */
@@ -331,8 +357,15 @@ fun PendingCard(
     if (editAmount) {
         AmountDialog(
             title = item.title,
-            initial = Money.toInput(item.payment.amountMinor, item.currency),
-            currency = item.currency,
+            // Платёж в другой валюте: вводится, сколько списано со счёта (в его валюте).
+            initial = if (item.isForeign) item.approxMinor?.let { Money.toInput(it, item.accountCurrency) } ?: ""
+            else Money.toInput(item.payment.amountMinor, item.currency),
+            currency = item.accountCurrency,
+            label = if (item.isForeign) {
+                "Списано за ${Money.format(item.payment.amountMinor, item.currency)}"
+            } else {
+                "Сумма в этот раз"
+            },
             onDismiss = { editAmount = false },
             onSubmit = { text -> onConfirm(text).also { if (it == null) editAmount = false } },
         )
@@ -341,7 +374,14 @@ fun PendingCard(
 
 /** Провести с другой суммой (счёт за свет, зарплата с премией). */
 @Composable
-private fun AmountDialog(title: String, initial: String, currency: String, onDismiss: () -> Unit, onSubmit: (String) -> String?) {
+private fun AmountDialog(
+    title: String,
+    initial: String,
+    currency: String,
+    label: String,
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> String?,
+) {
     var text by remember { mutableStateOf(initial) }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
@@ -351,7 +391,7 @@ private fun AmountDialog(title: String, initial: String, currency: String, onDis
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it.take(16); error = null },
-                label = { Text("Сумма в этот раз") },
+                label = { Text(label) },
                 suffix = { Text(currency) },
                 isError = error != null,
                 supportingText = { Text(error ?: "Сумма в шаблоне не изменится") },

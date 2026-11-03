@@ -20,7 +20,7 @@ Kotlin 2.0.21, AGP 8.13.2, Gradle 8.13 (нужен **JDK 21**, на JDK 25 не 
 compileSdk/targetSdk 35, minSdk 29, Java/JVM target 17.
 Jetpack Compose (BOM 2024.12.01, Material 3), Navigation Compose 2.8.5, Room 2.6.1 (KSP),
 Hilt 2.52, DataStore 1.1.1, WorkManager 2.9.1, Biometric 1.1.0. Шрифт Inter (`res/font`), иконки Material Icons Rounded (extended).
-Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.12.0 (versionCode 13).
+Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.12.1 (versionCode 14).
 
 ## Сборка и проверки (Windows)
 
@@ -52,7 +52,7 @@ app/src/main/java/app/fintrack/
                              Currencies (CurrencyConverter — пересчёт через BYN, NbrbParser),
                              AppLock (PinHasher — PBKDF2, LockPolicy — тайм-аут и пауза после ошибок)
   data/db/                   Entities.kt, Daos.kt, Sql.kt (все сложные запросы), Migrations.kt,
-                             FinTrackDatabase.kt (version 8), DefaultData.kt (стартовые категории)
+                             FinTrackDatabase.kt (version 9), DefaultData.kt (стартовые категории)
   data/repository/           Account, Transaction, Category, Settings, Stats, Budget, Deposit, Piggy, Loan, Recurring, Rates, Security
   di/AppModule.kt            Room + миграции, DataStore
   notify/                    RecurringWorker (WorkManager, ежедневно ~9:00), RecurringNotifier (канал, уведомления),
@@ -105,7 +105,10 @@ UI зависит от доменных моделей, не от сущност
   Бюджет не пересчитывается (лимит в своей валюте). Валюты без курса не входят в суммы — показывается предупреждение.
 - Доход/расход в другой валюте (20 USD с карты в BYN): `amountMinor` — всегда сумма в валюте счёта
   (по курсу или введённая вручную «Списано со счёта»), `originalAmountMinor`/`originalCurrency` — справочно,
-  в балансах и статистике не участвуют. Для переводов и регулярных платежей не используется.
+  в балансах и статистике не участвуют. Для переводов не используется.
+- Регулярный платёж в другой валюте: `recurring.foreignCurrency` задан — `amountMinor` шаблона в этой валюте;
+  при каждом проведении `RecurringRepository.post` пересчитывает по текущему курсу (нет курса — `NO_RATE`,
+  платёж ждёт подтверждения), «своя сумма» при подтверждении — всегда в валюте счёта.
 - Уведомления бюджета: `BudgetAlertMonitor` считает уровни тем же `BudgetOverviewBuilder`, что экран «Бюджет»,
   и шлёт уведомление только при росте уровня (`BudgetAlerts.evaluate`); показанные уровни месяца хранятся
   в DataStore. Первая проверка (новая установка/версия) запоминает состояние молча.
@@ -122,7 +125,7 @@ UI зависит от доменных моделей, не от сущност
 ## База данных и миграции
 
 - Схема версии 8: 1→2 budget_limits, 2→3 deposits, 3→4 piggy_banks, 4→5 accounts.excludeFromTotal, 5→6 loans,
-  6→7 recurring, 7→8 transactions.originalAmountMinor/originalCurrency.
+  6→7 recurring, 7→8 transactions.originalAmountMinor/originalCurrency, 8→9 recurring.foreignCurrency.
 - Новая схема = `version + 1` в `FinTrackDatabase`, миграция в `Migrations.kt` (точный SQL,
   как генерирует Room; SQL — константой, чтобы его проверял `verify_sql.py`), добавить в `Migrations.ALL`,
   тест в `MigrationTest`. Новые NOT NULL колонки — с `@ColumnInfo(defaultValue = ...)`, совпадающим с миграцией.
@@ -173,6 +176,7 @@ UI зависит от доменных моделей, не от сущност
 0.10 — курсы валют (НБРБ + ручные), итог баланса в выбранной валюте, статистика с пересчётом.
 0.11 — доход/расход в другой валюте с пересчётом в валюту счёта; окно лимита бюджета над клавиатурой.
 0.12 — блокировка PIN-кодом и отпечатком, тайм-аут, защита от подбора, скрытие в недавних.
+0.12.1 — регулярные платежи в другой валюте (пересчёт по курсу на день платежа).
 
 ## Дальше по плану (обсуждать с пользователем перед началом)
 

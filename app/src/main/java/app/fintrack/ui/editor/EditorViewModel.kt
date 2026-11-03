@@ -85,9 +85,16 @@ data class EditorUiState(
     val toCurrency: String? get() = toAccount?.account?.currencyCode
     val needsToAmount: Boolean get() = type == TransactionType.TRANSFER && toCurrency != null && toCurrency != currency
 
-    /** Можно указать сумму в другой валюте: доход или расход, не регулярный. */
+    /** Можно указать сумму в другой валюте: доход или расход (в том числе регулярный). */
     val canForeign: Boolean
-        get() = (type == TransactionType.EXPENSE || type == TransactionType.INCOME) && repeat == null && mode != EditorMode.TEMPLATE
+        get() = type == TransactionType.EXPENSE || type == TransactionType.INCOME
+
+    /** Регулярный платёж: со счёта каждый раз спишется сумма по курсу на день платежа. */
+    val isRecurringSave: Boolean get() = repeat != null && canRepeat
+
+    /** Поле «Списано со счёта» нужно, только если операция проводится сейчас (разовая или первый повтор сегодня). */
+    val showsDebit: Boolean
+        get() = isForeign && mode != EditorMode.TEMPLATE && (repeat == null || !date.isAfter(LocalDate.now()))
     val isForeign: Boolean get() = canForeign && foreignCurrency != null && foreignCurrency != currency
 
     /** Валюта, в которой вводится сумма на клавиатуре. */
@@ -188,7 +195,8 @@ class EditorViewModel @Inject constructor(
                     mode = EditorMode.TEMPLATE,
                     templateId = r.id,
                     type = r.type,
-                    expression = Money.toInput(r.amountMinor, accCurrency),
+                    expression = Money.toInput(r.amountMinor, r.foreignCurrency ?: accCurrency),
+                    foreignCurrency = r.foreignCurrency,
                     accountId = r.accountId,
                     toAccountId = r.toAccountId,
                     toAmountText = if (toCurrency != null && toCurrency != accCurrency && r.toAmountMinor != null) {
@@ -396,12 +404,14 @@ class EditorViewModel @Inject constructor(
         val evaluated = ExpressionEvaluator.evaluate(s.expression)
         // Покупка в другой валюте: со счёта списывается указанная сумма или пересчитанная по курсу.
         val foreign = s.foreignMinor
-        if (s.isForeign && foreign != null && s.debitText.isBlank() && s.convertedMinor == null) {
+        // Регулярный платёж хранит сумму в валюте платежа — курс понадобится уже при проведении.
+        if (s.isForeign && !s.isRecurringSave && foreign != null && s.debitText.isBlank() && s.convertedMinor == null) {
             _state.update { it.copy(errors = setOf(ValidationError.DEBIT_REQUIRED)) }
             return
         }
         val amountMinor = when {
             s.isForeign && foreign == null -> null
+            s.isForeign && s.isRecurringSave -> foreign
             s.isForeign -> if (s.debitText.isNotBlank()) Money.parse(s.debitText, s.currency) else s.convertedMinor
             else -> evaluated?.takeIf { it.signum() > 0 }?.let { Money.toMinor(it, s.currency) }
         }
@@ -431,10 +441,14 @@ class EditorViewModel @Inject constructor(
                         val minute = s.time.hour * 60 + s.time.minute
                         val templateId = s.templateId
                         if (templateId != null) {
-                            recurring.update(templateId, result.value, s.payee, s.comment, rule, minute, repeat.mode)
+                            recurring.update(templateId, result.value, s.payee, s.comment, rule, minute, repeat.mode, original)
                             events.send(EditorEvent.Message("Регулярный платёж сохранён"))
                         } else {
-                            recurring.create(result.value, s.payee, s.comment, rule, minute, repeat.mode)
+                            recurring.create(
+                                result.value, s.payee, s.comment, rule, minute, repeat.mode,
+                                foreign = original,
+                                firstDebitMinor = if (s.isForeign && s.debitText.isNotBlank()) Money.parse(s.debitText, s.currency) else null,
+                            )
                             settings.rememberLastUsed(
                                 accountId = result.value.accountId,
                                 expenseCategoryId = result.value.categoryId.takeIf { s.type == TransactionType.EXPENSE },

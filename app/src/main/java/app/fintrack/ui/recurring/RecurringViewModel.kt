@@ -43,13 +43,17 @@ class RecurringActions(
 ) {
     /** Возвращает текст ошибки суммы или null, если платёж принят. */
     fun confirm(scope: kotlinx.coroutines.CoroutineScope, item: RecurringItem, amountText: String?): String? {
-        val amount = amountText?.let { Money.parse(it, item.currency) }
+        // Своя сумма — всегда в валюте счёта (для платежа в другой валюте это «сколько списано»).
+        val amount = amountText?.let { Money.parse(it, item.accountCurrency) }
         if (amountText != null && (amount == null || amount <= 0)) return "Введите сумму больше нуля"
         scope.launch {
             val r = repo.confirmNext(item.id, amount)
             RecurringNotifier.cancel(app, item.id)
             message(
-                if (r == RecurringPostResult.OK) "Проведено: ${item.title}, ${Money.format(amount ?: item.payment.amountMinor, item.currency)}"
+                if (r == RecurringPostResult.OK) {
+                    "Проведено: ${item.title}, " + if (amount != null) Money.format(amount, item.accountCurrency)
+                    else Money.format(item.payment.amountMinor, item.currency)
+                }
                 else r.message ?: "Не получилось",
             )
         }
@@ -72,6 +76,7 @@ class RecurringViewModel @Inject constructor(
     accounts: AccountRepository,
     categories: CategoryRepository,
     settings: SettingsRepository,
+    rates: app.fintrack.data.repository.RatesRepository,
 ) : AndroidViewModel(app) {
 
     private val events = Channel<String>(Channel.BUFFERED)
@@ -82,10 +87,10 @@ class RecurringViewModel @Inject constructor(
         repo.observeAll(),
         accounts.observeAccounts(),
         categories.observeAll(),
-        settings.settings,
-    ) { list, accs, cats, s ->
+        combine(settings.settings, rates.state) { s, r -> s to r },
+    ) { list, accs, cats, (s, r) ->
         val today = LocalDate.now()
-        val items = RecurringItems.build(list, accs, cats, today)
+        val items = RecurringItems.build(list, accs, cats, today, r.converter)
         val live = items.filter { !it.payment.isPaused && it.nextDate != null }
         RecurringUiState(
             loading = false,

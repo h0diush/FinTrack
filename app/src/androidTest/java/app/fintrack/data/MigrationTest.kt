@@ -193,4 +193,26 @@ class MigrationTest {
         }
         db.close()
     }
+
+    @Test
+    fun migrate8To9AddsRecurringCurrency() {
+        helper.createDatabase(dbName, 8).apply {
+            execSQL(
+                "INSERT INTO accounts (id, name, type, currencyCode, initialBalanceMinor, color, sortOrder, isArchived, createdAt, excludeFromTotal) " +
+                    "VALUES ('c', 'Карта', 'CARD', 'BYN', 100000, 0, 0, 0, 0, 0)",
+            )
+            execSQL(
+                "INSERT INTO recurring VALUES ('r', 'EXPENSE', 'c', NULL, 2500, NULL, 0, NULL, 'Интернет', '', 'MONTH', 1, " +
+                    "20000, 0, NULL, NULL, 720, 0, 'CONFIRM', 0, 0)",
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(dbName, 9, true, *Migrations.ALL)
+        db.query("SELECT amountMinor, foreignCurrency FROM recurring WHERE id = 'r'").use { c ->
+            c.moveToFirst()
+            assertEquals(2500, c.getInt(0))
+            assertTrue(c.isNull(1))
+        }
+        db.close()
+    }
 }

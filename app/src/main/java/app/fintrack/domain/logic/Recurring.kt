@@ -60,6 +60,11 @@ data class RecurringPayment(
     val processedCount: Int,
     val mode: RecurringMode,
     val isPaused: Boolean,
+    /**
+     * Валюта платежа, если не валюта счёта (подписка 9,99 USD с карты в BYN): тогда [amountMinor] — в ней,
+     * а со счёта при каждом проведении списывается сумма по курсу на этот день.
+     */
+    val foreignCurrency: String? = null,
 ) {
     /** Дата следующего (ещё не обработанного) повтора; null — повторы закончились. */
     val nextDate: LocalDate? get() = RecurrenceCalculator.dateOf(rule, processedCount)
