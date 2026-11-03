@@ -58,6 +58,11 @@ import app.fintrack.ui.components.AppCard
 import app.fintrack.ui.components.IconBadge
 import app.fintrack.ui.components.bounceClick
 import androidx.compose.ui.graphics.Color
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.ui.semantics.Role
 import app.fintrack.ui.components.CurrencyPickerDialog
 import app.fintrack.ui.components.currencyTitle
@@ -84,6 +89,10 @@ class SettingsViewModel @Inject constructor(private val repo: SettingsRepository
     fun setHideAmounts(hide: Boolean) {
         viewModelScope.launch { repo.setHideAmounts(hide) }
     }
+
+    fun setBudgetAlerts(enabled: Boolean) {
+        viewModelScope.launch { repo.setBudgetAlerts(enabled) }
+    }
 }
 
 private fun ThemeMode.title() = when (this) {
@@ -102,6 +111,13 @@ fun SettingsScreen(
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val s by vm.settings.collectAsStateWithLifecycle()
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val toggleBudgetAlerts = { enabled: Boolean ->
+        if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        vm.setBudgetAlerts(enabled)
+    }
     var showTheme by remember { mutableStateOf(false) }
     var showCurrency by remember { mutableStateOf(false) }
 
@@ -150,6 +166,26 @@ fun SettingsScreen(
                             )
                         }
                         Switch(checked = s.hideAmounts, onCheckedChange = vm::setHideAmounts)
+                    }
+                    SettingsDivider()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bounceClick(pressedScale = 0.98f, role = Role.Switch) { toggleBudgetAlerts(!s.budgetAlerts) }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconBadge(Icons.Rounded.NotificationsActive, Color(0xFFF59E0B), size = 40.dp)
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Уведомления о бюджете", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "При ${s.budgetInfoPercent} %, ${s.budgetWarningPercent} % и превышении лимита",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(checked = s.budgetAlerts, onCheckedChange = toggleBudgetAlerts)
                     }
                     SettingsDivider()
                     SettingRow(Icons.Rounded.Category, "Категории", "Создание, подкатегории, иконки, архив", Color(0xFFF97316), onClick = onOpenCategories)

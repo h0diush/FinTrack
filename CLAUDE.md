@@ -19,13 +19,13 @@ Kotlin 2.0.21, AGP 8.13.2, Gradle 8.13 (нужен **JDK 21**, на JDK 25 не 
 compileSdk/targetSdk 35, minSdk 29, Java/JVM target 17.
 Jetpack Compose (BOM 2024.12.01, Material 3), Navigation Compose 2.8.5, Room 2.6.1 (KSP),
 Hilt 2.52, DataStore 1.1.1, WorkManager 2.9.1. Шрифт Inter (`res/font`), иконки Material Icons Rounded (extended).
-Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.9.0 (versionCode 9).
+Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.9.1 (versionCode 10).
 
 ## Сборка и проверки (Windows)
 
 ```
 gradlew.bat assembleRelease          # APK: app\build\outputs\apk\release\app-release.apk
-gradlew.bat testDebugUnitTest        # JVM-тесты доменной логики (app/src/test), сейчас 91
+gradlew.bat testDebugUnitTest        # JVM-тесты доменной логики (app/src/test), сейчас 98
 gradlew.bat connectedDebugAndroidTest # Room и миграции на телефоне/эмуляторе (app/src/androidTest)
 python tools\verify_sql.py           # SQL из Sql.kt/Migrations.kt на настоящей SQLite
 ```
@@ -46,13 +46,15 @@ app/src/main/java/app/fintrack/
                              TransactionValidator, Periods, StatisticsCalculator,
                              BudgetCalculator, Insights, DepositCalculator, Piggy (+ Motivation, ruPlural),
                              Loans (LoanCalculator: аннуитет/дифференцированный график),
-                             Recurring (RecurrenceCalculator: даты повторов, описание по-русски)
+                             Recurring (RecurrenceCalculator: даты повторов, описание по-русски),
+                             BudgetAlerts (когда слать уведомление о пороге бюджета)
   data/db/                   Entities.kt, Daos.kt, Sql.kt (все сложные запросы), Migrations.kt,
                              FinTrackDatabase.kt (version 7), DefaultData.kt (стартовые категории)
   data/repository/           Account, Transaction, Category, Settings, Stats, Budget, Deposit, Piggy, Loan, Recurring
   di/AppModule.kt            Room + миграции, DataStore
   notify/                    RecurringWorker (WorkManager, ежедневно ~9:00), RecurringNotifier (канал, уведомления),
-                             RecurringActionReceiver (кнопки «Провести»/«Пропустить» в уведомлении)
+                             RecurringActionReceiver (кнопки «Провести»/«Пропустить» в уведомлении),
+                             BudgetAlertMonitor (следит за бюджетом месяца, запускается в FinTrackApp)
   ui/                        theme, components, navigation, charts,
                              home, editor, history, stats, budget, accounts, piggy, loans, recurring, categories, settings
 ```
@@ -93,6 +95,9 @@ UI зависит от доменных моделей, не от сущност
   AUTO проводится в `RecurringRepository.processDue` (запуск приложения + ежедневный `RecurringWorker`),
   пропущенные дни догоняются; CONFIRM ждёт на главной/в уведомлении. Изменение шаблона пересчитывает
   правило от даты следующего платежа (счётчик обнуляется). Создаётся из формы операции (строка «Повтор»).
+- Уведомления бюджета: `BudgetAlertMonitor` считает уровни тем же `BudgetOverviewBuilder`, что экран «Бюджет»,
+  и шлёт уведомление только при росте уровня (`BudgetAlerts.evaluate`); показанные уровни месяца хранятся
+  в DataStore. Первая проверка (новая установка/версия) запоминает состояние молча.
 
 ## База данных и миграции
 
@@ -144,11 +149,11 @@ UI зависит от доменных моделей, не от сущност
 0.7 — «не учитывать счёт в общем балансе», исправление разрывов слов.
 0.8 — кредиты/рассрочки/ипотека с графиком платежей; график баланса без счетов «вне баланса».
 0.9 — регулярные платежи: шаблоны, повторы, подтверждение или автопроведение, уведомления (WorkManager).
+0.9.1 — уведомления о порогах бюджета (50/80/100 %, переключатель в настройках).
 
 ## Дальше по плану (обсуждать с пользователем перед началом)
 
-- Этап 4 (остаток): автопополнение копилок,
-  курсы валют и пересчёт в основную валюту, уведомления (пороги бюджета).
+- Этап 4 (остаток): автопополнение копилок, курсы валют и пересчёт в основную валюту.
 - Этап 5: шифрованные резервные копии (Android Keystore), экспорт CSV/XLSX/PDF, импорт CSV, PIN/биометрия.
 - Этап 6: виджет, полировка.
 - Предлагалось: налог на проценты по вкладу, ежемесячное пополнение вклада.

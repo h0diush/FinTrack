@@ -130,4 +130,6 @@ data class AppSettings(
     val budgetInfoPercent: Int = 50,
     /** Порог «предупреждение» для бюджетов, % (по ТЗ — 80). Превышение — всегда 100 %. */
     val budgetWarningPercent: Int = 80,
+    /** Уведомлять, когда расходы пересекают пороги бюджета. */
+    val budgetAlerts: Boolean = true,
 )

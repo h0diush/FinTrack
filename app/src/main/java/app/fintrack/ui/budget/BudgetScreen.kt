@@ -132,6 +132,10 @@ fun levelColor(level: BudgetLevel): Color {
 @Composable
 fun BudgetScreen(vm: BudgetViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { }
     var showThresholds by remember { mutableStateOf(false) }
     var direction by remember { mutableIntStateOf(1) }
     val o = state.overview
@@ -269,7 +273,15 @@ fun BudgetScreen(vm: BudgetViewModel = hiltViewModel()) {
             onCategory = vm::setEditorCategory,
             onAmount = vm::setEditorAmount,
             onRollover = vm::setEditorRollover,
-            onSave = vm::saveEditor,
+            onSave = {
+                // Лимит — повод для уведомлений о пороге: спросить разрешение, если его ещё нет.
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+                    !app.fintrack.notify.RecurringNotifier.canNotify(context)
+                ) {
+                    notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
+                vm.saveEditor()
+            },
             onRemove = vm::removeEditorLimit,
             onDismiss = vm::closeEditor,
         )
