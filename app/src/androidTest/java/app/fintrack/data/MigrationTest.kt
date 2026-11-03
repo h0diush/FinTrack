@@ -115,4 +115,31 @@ class MigrationTest {
         }
         db.close()
     }
+
+    @Test
+    fun migrate5To6AddsLoans() {
+        helper.createDatabase(dbName, 5).apply {
+            execSQL(
+                "INSERT INTO accounts (id, name, type, currencyCode, initialBalanceMinor, color, sortOrder, isArchived, createdAt, excludeFromTotal) " +
+                    "VALUES ('c', 'Карта', 'CARD', 'BYN', 100000, 0, 0, 0, 0, 1)",
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(dbName, 6, true, *Migrations.ALL)
+        db.execSQL(
+            "INSERT INTO accounts (id, name, type, currencyCode, initialBalanceMinor, color, sortOrder, isArchived, createdAt, excludeFromTotal) " +
+                "VALUES ('l', 'Ипотека', 'LOAN', 'BYN', -5000000, 0, 1, 0, 0, 1)",
+        )
+        db.execSQL("INSERT INTO loans VALUES ('l', 'MORTGAGE', 'ANNUITY', 5000000, 1200, 20000, 240, 0, NULL, 0)")
+        db.query("SELECT excludeFromTotal FROM accounts WHERE id = 'c'").use { c ->
+            c.moveToFirst()
+            assertEquals(1, c.getInt(0))
+        }
+        db.execSQL("DELETE FROM accounts WHERE id = 'l'")
+        db.query("SELECT COUNT(*) FROM loans").use { c ->
+            c.moveToFirst()
+            assertEquals(0, c.getInt(0))
+        }
+        db.close()
+    }
 }

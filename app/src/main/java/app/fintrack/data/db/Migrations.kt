@@ -61,5 +61,19 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+    /** 5 → 6: условия кредитов. Сами кредиты — счета с типом LOAN (тип хранится текстом). */
+    const val CREATE_LOANS = "CREATE TABLE IF NOT EXISTS `loans` (" +
+        "`accountId` TEXT NOT NULL, `kind` TEXT NOT NULL, `schedule` TEXT NOT NULL, " +
+        "`principalMinor` INTEGER NOT NULL, `rateBp` INTEGER NOT NULL, `startDay` INTEGER NOT NULL, " +
+        "`termMonths` INTEGER NOT NULL, `initialPaid` INTEGER NOT NULL, `interestCategoryId` TEXT, " +
+        "`createdAt` INTEGER NOT NULL, PRIMARY KEY(`accountId`), " +
+        "FOREIGN KEY(`accountId`) REFERENCES `accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(CREATE_LOANS)
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
 }

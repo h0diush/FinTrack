@@ -28,6 +28,10 @@ class TransactionRepository @Inject constructor(
     fun observeDetails(id: String): Flow<TransactionDetails?> =
         dao.observeDetails(id).map { it?.toDomain() }
 
+    /** История кредита: платежи (тело и проценты) и выдача. */
+    fun observeForLoan(loanId: String, idPrefix: String): Flow<List<TransactionDetails>> =
+        dao.observeForLoan(loanId, idPrefix).map { rows -> rows.map { it.toDomain() } }
+
     fun observeFiltered(
         range: TimeRange?,
         type: TransactionType?,

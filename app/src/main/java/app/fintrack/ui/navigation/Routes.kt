@@ -17,6 +17,9 @@ object Routes {
     const val CATEGORY_EDIT = "category_edit?id={id}&kind={kind}&parentId={parentId}"
     const val PIGGY = "piggy/{id}"
     const val PIGGY_EDIT = "piggy_edit?id={id}"
+    const val LOANS = "loans"
+    const val LOAN = "loan/{id}"
+    const val LOAN_EDIT = "loan_edit?id={id}&kind={kind}"
 
     /** Вкладки нижней панели (по ТЗ). Счета и настройки открываются с главной. */
     val tabs = setOf(HOME, HISTORY, STATS, BUDGET)
@@ -36,6 +39,10 @@ object Routes {
     fun piggy(id: String) = "piggy/${Uri.encode(id)}"
 
     fun piggyEdit(id: String? = null) = "piggy_edit" + query("id" to id)
+
+    fun loan(id: String) = "loan/${Uri.encode(id)}"
+
+    fun loanEdit(id: String? = null, kind: String? = null) = "loan_edit" + query("id" to id, "kind" to kind)
 
     fun categoryEdit(id: String? = null, kind: String? = null, parentId: String? = null) =
         "category_edit" + query("id" to id, "kind" to kind, "parentId" to parentId)

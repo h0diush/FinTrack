@@ -35,6 +35,8 @@ data class AccountsUiState(
     val active: List<AccountWithBalance> = emptyList(),
     /** Копилки показываются отдельным разделом и открывают свой экран. */
     val piggies: List<AccountWithBalance> = emptyList(),
+    /** Кредиты — свой раздел и свой экран. */
+    val loans: List<app.fintrack.domain.logic.Loan> = emptyList(),
     val archived: List<AccountWithBalance> = emptyList(),
     /** Итог по валютам, основная валюта первой. */
     val totals: List<Pair<String, Long>> = emptyList(),
@@ -50,21 +52,24 @@ class AccountsViewModel @Inject constructor(
     private val accounts: AccountRepository,
     settings: SettingsRepository,
     depositRepo: DepositRepository,
+    loanRepo: app.fintrack.data.repository.LoanRepository,
 ) : ViewModel() {
 
     val state: StateFlow<AccountsUiState> = combine(
         accounts.observeAccounts(),
         settings.settings,
         depositRepo.observeAll(),
-    ) { list, s, deps ->
+        loanRepo.observeAll(),
+    ) { list, s, deps, loans ->
         val active = list.filter { !it.account.isArchived }
         val sums = app.fintrack.domain.logic.BalanceCalculator.totalByCurrency(active)
         val order = (listOf(s.baseCurrency) + sums.keys).distinct().filter { it in sums }
         AccountsUiState(
             loading = false,
-            active = active.filter { it.account.type != AccountType.PIGGY },
+            active = active.filter { it.account.type != AccountType.PIGGY && it.account.type != AccountType.LOAN },
+            loans = loans,
             piggies = active.filter { it.account.type == AccountType.PIGGY },
-            archived = list.filter { it.account.isArchived },
+            archived = list.filter { it.account.isArchived && it.account.type != AccountType.LOAN },
             totals = order.map { it to sums.getValue(it) },
             hideAmounts = s.hideAmounts,
             excludedCount = active.count { it.account.excludeFromTotal },

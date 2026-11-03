@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.Category
+import androidx.compose.material.icons.rounded.RequestQuote
 import androidx.compose.material.icons.rounded.Euro
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Palette
@@ -95,6 +96,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenCategories: () -> Unit,
     onOpenAccounts: () -> Unit,
+    onOpenLoans: () -> Unit,
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val s by vm.settings.collectAsStateWithLifecycle()
@@ -151,6 +153,8 @@ fun SettingsScreen(
                     SettingRow(Icons.Rounded.Category, "Категории", "Создание, подкатегории, иконки, архив", Color(0xFFF97316), onClick = onOpenCategories)
                     SettingsDivider()
                     SettingRow(Icons.Rounded.AccountBalanceWallet, "Счета", "Балансы, порядок, архив, корректировка", Color(0xFF2F55E4), onClick = onOpenAccounts)
+                    SettingsDivider()
+                    SettingRow(Icons.Rounded.RequestQuote, "Кредиты", "Кредиты, рассрочки, ипотека и графики платежей", Color(0xFF059669), onClick = onOpenLoans)
                 }
             }
 

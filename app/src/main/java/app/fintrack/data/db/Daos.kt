@@ -99,6 +99,9 @@ interface TransactionDao {
     @Query(Sql.DETAILS_BY_ID)
     fun observeDetails(id: String): Flow<TransactionDetailsRow?>
 
+    @Query(Sql.DETAILS_FOR_LOAN)
+    fun observeForLoan(accountId: String, idPrefix: String): Flow<List<TransactionDetailsRow>>
+
     @Query(Sql.DETAILS_FILTERED)
     fun observeFiltered(
         start: Long?,
@@ -187,4 +190,22 @@ interface PiggyDao {
 
     @Query(Sql.PIGGY_TOP_UPS)
     fun observeTopUps(): Flow<List<PiggyTopUpRow>>
+}
+
+@Dao
+interface LoanDao {
+    @Query("SELECT * FROM loans")
+    fun observeAll(): Flow<List<LoanEntity>>
+
+    @Query("SELECT * FROM loans WHERE accountId = :accountId")
+    suspend fun get(accountId: String): LoanEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: LoanEntity)
+
+    @Query(Sql.LOAN_TRANSACTIONS)
+    fun observeLoanTransactions(): Flow<List<LoanTxRow>>
+
+    @Query(Sql.LOAN_TRANSACTIONS)
+    suspend fun loanTransactions(): List<LoanTxRow>
 }

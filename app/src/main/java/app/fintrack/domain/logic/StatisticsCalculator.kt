@@ -78,10 +78,13 @@ object StatisticsCalculator {
         else -> 0L
     }
 
-    /** Изменение суммарного баланса всех счетов в валюте [currency]. */
-    fun balanceDeltaOf(e: StatEntry, currency: String): Long {
+    /**
+     * Изменение суммарного баланса счетов в валюте [currency].
+     * Счета из [excluded] не учитываются: перевод на такой счёт уменьшает общий баланс.
+     */
+    fun balanceDeltaOf(e: StatEntry, currency: String, excluded: Set<String> = emptySet()): Long {
         var d = 0L
-        if (e.currency == currency) {
+        if (e.currency == currency && e.accountId !in excluded) {
             d += when (e.type) {
                 TransactionType.INCOME -> e.amountMinor
                 TransactionType.EXPENSE -> -e.amountMinor
@@ -89,7 +92,7 @@ object StatisticsCalculator {
                 TransactionType.ADJUSTMENT -> e.amountMinor
             }
         }
-        if (e.type == TransactionType.TRANSFER && e.toCurrency == currency) {
+        if (e.type == TransactionType.TRANSFER && e.toCurrency == currency && e.toAccountId !in excluded) {
             d += e.toAmountMinor ?: 0L
         }
         return d
@@ -199,11 +202,12 @@ object StatisticsCalculator {
         opening: Long,
         days: List<LocalDate>,
         zone: ZoneId,
+        excluded: Set<String> = emptySet(),
     ): List<BalancePoint> {
         if (days.isEmpty()) return emptyList()
         val deltaByDay = HashMap<LocalDate, Long>()
         for (e in entries) {
-            val delta = balanceDeltaOf(e, currency)
+            val delta = balanceDeltaOf(e, currency, excluded)
             if (delta != 0L) {
                 val day = dateOf(e, zone)
                 deltaByDay[day] = (deltaByDay[day] ?: 0L) + delta

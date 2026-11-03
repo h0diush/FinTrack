@@ -7,6 +7,8 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
+import app.fintrack.domain.logic.LoanKind
+import app.fintrack.domain.logic.LoanSchedule
 import app.fintrack.domain.model.AccountType
 import app.fintrack.domain.model.CategoryKind
 import app.fintrack.domain.model.TransactionType
@@ -167,6 +169,43 @@ data class PiggyEntity(
     val createdAt: Long,
 )
 
+/**
+ * Условия кредита (один к одному со счётом типа LOAN). Удаляется вместе со счётом.
+ * startDay — дата выдачи в днях эпохи; первый платёж — через месяц.
+ * initialPaid — платежи, внесённые до начала учёта в приложении (без операций).
+ */
+@Entity(
+    tableName = "loans",
+    foreignKeys = [
+        ForeignKey(
+            entity = AccountEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["accountId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class LoanEntity(
+    @PrimaryKey val accountId: String,
+    val kind: LoanKind,
+    val schedule: LoanSchedule,
+    val principalMinor: Long,
+    val rateBp: Long,
+    val startDay: Long,
+    val termMonths: Int,
+    val initialPaid: Int,
+    val interestCategoryId: String?,
+    val createdAt: Long,
+)
+
+/** Операция по кредиту (id с префиксом «loan:<счёт>:»): платежи и выдача. */
+data class LoanTxRow(
+    val id: String,
+    val type: TransactionType,
+    val accountId: String,
+    val amountMinor: Long,
+)
+
 /** Пополнения копилки: сколько раз, сумма последнего. */
 data class PiggyTopUpRow(
     val accountId: String,
@@ -225,4 +264,8 @@ class Converters {
     @TypeConverter fun toCategoryKind(v: String): CategoryKind = CategoryKind.valueOf(v)
     @TypeConverter fun fromAccountType(v: AccountType): String = v.name
     @TypeConverter fun toAccountType(v: String): AccountType = AccountType.valueOf(v)
+    @TypeConverter fun fromLoanKind(v: LoanKind): String = v.name
+    @TypeConverter fun toLoanKind(v: String): LoanKind = LoanKind.valueOf(v)
+    @TypeConverter fun fromLoanSchedule(v: LoanSchedule): String = v.name
+    @TypeConverter fun toLoanSchedule(v: String): LoanSchedule = LoanSchedule.valueOf(v)
 }

@@ -39,9 +39,12 @@ object Sql {
         " + COALESCE((SELECT SUM(t2.toAmountMinor) FROM transactions t2" +
         " WHERE t2.type = 'TRANSFER' AND t2.toAccountId = a.id AND t2.dateTime < :before), 0))"
 
-    /** Суммарный баланс по валютам на момент :before — начальная точка графика баланса. */
+    /**
+     * Суммарный баланс по валютам на момент :before — начальная точка графика баланса.
+     * Счета «не учитывать в общем балансе» не входят (как и в BalanceCalculator.totalByCurrency).
+     */
     const val BALANCES_BEFORE = "SELECT a.currencyCode AS currencyCode, SUM(" + BALANCE_BEFORE_EXPR + ") AS balanceMinor" +
-        " FROM accounts a GROUP BY a.currencyCode"
+        " FROM accounts a WHERE a.excludeFromTotal = 0 GROUP BY a.currencyCode"
 
     /** Операции периода для статистики и бюджетов; агрегирование — в Kotlin с учётом часового пояса. */
     const val STAT_ENTRIES = "SELECT t.type AS type, t.accountId AS accountId, t.toAccountId AS toAccountId," +
@@ -53,6 +56,10 @@ object Sql {
         " LEFT JOIN accounts ta ON ta.id = t.toAccountId" +
         " LEFT JOIN categories c ON c.id = t.categoryId" +
         " WHERE t.dateTime >= :start AND t.dateTime < :end"
+
+    /** Платежи и выдачи по всем кредитам: id вида «loan:<счёт кредита>:<номер>:<p|i|d>». */
+    const val LOAN_TRANSACTIONS = "SELECT t.id AS id, t.type AS type, t.accountId AS accountId, t.amountMinor AS amountMinor" +
+        " FROM transactions t WHERE t.id LIKE 'loan:%'"
 
     const val EARLIEST_DATE = "SELECT MIN(dateTime) FROM transactions"
 
@@ -89,6 +96,11 @@ object Sql {
     const val DETAILS_RECENT = DETAILS_SELECT + DETAILS_ORDER + " LIMIT :limit"
 
     const val DETAILS_BY_ID = DETAILS_SELECT + " WHERE t.id = :id"
+
+    /** Операции кредита: всё по его счёту плюс проценты (расходы с других счетов с id «loan:<кредит>:…»). */
+    const val DETAILS_FOR_LOAN = DETAILS_SELECT +
+        " WHERE t.accountId = :accountId OR t.toAccountId = :accountId OR t.id LIKE :idPrefix || '%'" +
+        DETAILS_ORDER
 
     /** Фильтры по периоду, типу, счёту и категории (с подкатегориями). Поиск и сумма — в Kotlin. */
     const val DETAILS_FILTERED = DETAILS_SELECT +

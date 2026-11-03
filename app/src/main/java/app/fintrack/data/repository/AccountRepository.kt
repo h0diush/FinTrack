@@ -107,12 +107,13 @@ class AccountRepository @Inject constructor(
 
     /**
      * Сдвигает счёт вверх (direction = -1) или вниз (+1) среди активных.
-     * Копилки и обычные счета упорядочиваются раздельно — они показываются в разных списках.
+     * Копилки, кредиты и обычные счета упорядочиваются раздельно — они показываются в разных списках.
      */
     suspend fun move(id: String, direction: Int) = db.withTransaction {
         val all = dao.getWithBalances().map { it.account }.filter { !it.isArchived }
-        val piggy = all.firstOrNull { it.id == id }?.type == AccountType.PIGGY
-        val active = all.filter { (it.type == AccountType.PIGGY) == piggy }.toMutableList()
+        fun group(t: AccountType) = if (t == AccountType.PIGGY || t == AccountType.LOAN) t else AccountType.CARD
+        val target = group(all.firstOrNull { it.id == id }?.type ?: return@withTransaction)
+        val active = all.filter { group(it.type) == target }.toMutableList()
         val from = active.indexOfFirst { it.id == id }
         val to = from + direction
         if (from < 0 || to !in active.indices) return@withTransaction

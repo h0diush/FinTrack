@@ -411,6 +411,7 @@ object AccountIcons {
         AccountType.CURRENCY -> Icons.Rounded.Euro
         AccountType.CUSTOM -> Icons.Rounded.AccountBalance
         AccountType.PIGGY -> Icons.Rounded.Savings
+        AccountType.LOAN -> Icons.Rounded.RequestQuote
     }
 }
 

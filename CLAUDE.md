@@ -19,13 +19,13 @@ Kotlin 2.0.21, AGP 8.7.3, Gradle 8.11.1 (нужен **JDK 21**, на JDK 25 не
 compileSdk/targetSdk 35, minSdk 29, Java/JVM target 17.
 Jetpack Compose (BOM 2024.12.01, Material 3), Navigation Compose 2.8.5, Room 2.6.1 (KSP),
 Hilt 2.52, DataStore 1.1.1. Шрифт Inter (`res/font`), иконки Material Icons Rounded (extended).
-Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.7.0 (versionCode 7).
+Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.8.0 (versionCode 8).
 
 ## Сборка и проверки (Windows)
 
 ```
 gradlew.bat assembleRelease          # APK: app\build\outputs\apk\release\app-release.apk
-gradlew.bat testDebugUnitTest        # JVM-тесты доменной логики (app/src/test), сейчас 71
+gradlew.bat testDebugUnitTest        # JVM-тесты доменной логики (app/src/test), сейчас 83
 gradlew.bat connectedDebugAndroidTest # Room и миграции на телефоне/эмуляторе (app/src/androidTest)
 python tools\verify_sql.py           # SQL из Sql.kt/Migrations.kt на настоящей SQLite
 ```
@@ -41,13 +41,14 @@ app/src/main/java/app/fintrack/
   domain/model/Models.kt     Account, Category, Transaction, AppSettings… (чистый Kotlin)
   domain/logic/              Money, ExpressionEvaluator, KeypadInput, BalanceCalculator,
                              TransactionValidator, Periods, StatisticsCalculator,
-                             BudgetCalculator, Insights, DepositCalculator, Piggy (+ Motivation, ruPlural)
+                             BudgetCalculator, Insights, DepositCalculator, Piggy (+ Motivation, ruPlural),
+                             Loans (LoanCalculator: аннуитет/дифференцированный график)
   data/db/                   Entities.kt, Daos.kt, Sql.kt (все сложные запросы), Migrations.kt,
-                             FinTrackDatabase.kt (version 5), DefaultData.kt (стартовые категории)
-  data/repository/           Account, Transaction, Category, Settings, Stats, Budget, Deposit, Piggy
+                             FinTrackDatabase.kt (version 6), DefaultData.kt (стартовые категории)
+  data/repository/           Account, Transaction, Category, Settings, Stats, Budget, Deposit, Piggy, Loan
   di/AppModule.kt            Room + миграции, DataStore
   ui/                        theme, components, navigation, charts,
-                             home, editor, history, stats, budget, accounts, piggy, categories, settings
+                             home, editor, history, stats, budget, accounts, piggy, loans, categories, settings
 ```
 
 MVVM: Screen (Compose) → HiltViewModel (StateFlow) → Repository → Room/DataStore.
@@ -66,16 +67,23 @@ UI зависит от доменных моделей, не от сущност
 - Запись, зависящая от чтения (проверка остатка, начисление), — внутри `db.withTransaction`.
 - Счета и категории с операциями не удаляются (FK RESTRICT) — архивируются.
 - Общий баланс: `BalanceCalculator.totalByCurrency` — без архивных и без счетов с
-  `excludeFromTotal = true`. Статистика и бюджет учитывают операции всех счетов.
+  `excludeFromTotal = true`. График «Баланс» в статистике тоже без таких счетов
+  (`Sql.BALANCES_BEFORE` + `excluded` в `balanceSeries`). Доходы/расходы в статистике и бюджет
+  учитывают операции всех счетов.
 - Вклад: проценты раз в месяц на фактический остаток, id операции `dep:<accountId>:<номер>` —
   начисление идемпотентно, пропущенные месяцы догоняются (`DepositRepository.postDueInterest`,
   вызывается из `HomeViewModel.init`).
 - Копилка = счёт с типом `AccountType.PIGGY` + строка в `piggy_banks` (цель, иконка, срок).
   Пополнение/снятие — обычный перевод в той же валюте (`PiggyRepository`).
+- Кредит = счёт `AccountType.LOAN` (остаток = −долг, по умолчанию вне общего баланса) + строка в `loans`
+  (вид, схема, сумма, ставка, дата выдачи, срок, `initialPaid` — платежи до начала учёта).
+  Платёж (`LoanRepository.pay`): перевод «счёт → кредит» на тело долга + расход «Кредиты» на проценты,
+  id `loan:<кредит>:<номер>:p|i`; досрочный — номер `x…`, только тело; выдача на счёт — `loan:<кредит>:0:d`.
+  Число платежей считается по журналу (удалили операцию — график откатился). Проценты месяца = долг × ставка / 12.
 
 ## База данных и миграции
 
-- Схема версии 5: 1→2 budget_limits, 2→3 deposits, 3→4 piggy_banks, 4→5 accounts.excludeFromTotal.
+- Схема версии 6: 1→2 budget_limits, 2→3 deposits, 3→4 piggy_banks, 4→5 accounts.excludeFromTotal, 5→6 loans.
 - Новая схема = `version + 1` в `FinTrackDatabase`, миграция в `Migrations.kt` (точный SQL,
   как генерирует Room; SQL — константой, чтобы его проверял `verify_sql.py`), добавить в `Migrations.ALL`,
   тест в `MigrationTest`. Новые NOT NULL колонки — с `@ColumnInfo(defaultValue = ...)`, совпадающим с миграцией.
@@ -107,7 +115,9 @@ UI зависит от доменных моделей, не от сущност
 
 Нижняя панель: Главная · История · [+] · Статистика · Бюджет (`Routes.tabs`).
 Счета — с карточки баланса на главной и из настроек; настройки — шестерёнка на главной;
-копилки — лента на главной и раздел в «Счетах» (`Routes.piggy(id)`, `Routes.piggyEdit()`).
+копилки — лента на главной и раздел в «Счетах» (`Routes.piggy(id)`, `Routes.piggyEdit()`);
+кредиты — блок ближайших платежей на главной, раздел в «Счетах», пункт в настройках
+(`Routes.LOANS`, `Routes.loan(id)`, `Routes.loanEdit(id, kind)`).
 
 ## Что сделано
 
@@ -116,6 +126,7 @@ UI зависит от доменных моделей, не от сущност
 сворачиваемая клавиатура в редакторе, 160 иконок категорий,
 0.5 — вклад с ежемесячной капитализацией, 0.6 — копилки с мотивационными фразами,
 0.7 — «не учитывать счёт в общем балансе», исправление разрывов слов.
+0.8 — кредиты/рассрочки/ипотека с графиком платежей; график баланса без счетов «вне баланса».
 
 ## Дальше по плану (обсуждать с пользователем перед началом)
 

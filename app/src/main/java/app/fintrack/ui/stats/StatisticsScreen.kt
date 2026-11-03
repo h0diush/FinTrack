@@ -859,7 +859,7 @@ private fun BalanceTrendCard(state: StatisticsUiState) {
     val fin = FinTheme.colors
     SectionCard(
         title = "Баланс",
-        subtitle = "Все счета в ${d.currency} на конец дня",
+        subtitle = "Счета общего баланса в ${d.currency} на конец дня",
         icon = Icons.Rounded.ShowChart,
         iconColor = MaterialTheme.colorScheme.primary,
     ) {

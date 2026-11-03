@@ -65,6 +65,8 @@ fun AccountsScreen(
     onOpenAccount: (String) -> Unit,
     onOpenHistory: (String) -> Unit,
     onOpenPiggy: (String) -> Unit,
+    onOpenLoan: (String) -> Unit,
+    onOpenLoans: () -> Unit,
     vm: AccountsViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -179,6 +181,21 @@ fun AccountsScreen(
                                 )
                             }
                         },
+                    )
+                }
+            }
+            if (!state.loading) {
+                item {
+                    SectionTitle("Кредиты") {
+                        TextButton(onClick = onOpenLoans) { Text(if (state.loans.isEmpty()) "Добавить" else "Все") }
+                    }
+                }
+                items(state.loans, key = { "l:" + it.accountId }) { loan ->
+                    app.fintrack.ui.loans.LoanCard(
+                        loan = loan,
+                        hidden = state.hideAmounts,
+                        onClick = { onOpenLoan(loan.accountId) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp).animateItem(),
                     )
                 }
             }

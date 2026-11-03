@@ -73,7 +73,7 @@ private data class Params(val period: Period, val currency: String, val today: L
 @HiltViewModel
 class StatisticsViewModel @Inject constructor(
     private val stats: StatsRepository,
-    accounts: AccountRepository,
+    private val accounts: AccountRepository,
     private val categories: CategoryRepository,
     settings: SettingsRepository,
 ) : ViewModel() {
@@ -141,7 +141,11 @@ class StatisticsViewModel @Inject constructor(
             endMillis = maxOf(range.endMillis, millis(lastMonth.plusMonths(1).atDay(1))),
         )
 
-        combine(stats.observeEntries(fetch), stats.observeBalancesBefore(range.startMillis)) { entries, opening ->
+        combine(
+            stats.observeEntries(fetch),
+            stats.observeBalancesBefore(range.startMillis),
+            excludedAccountIds(),
+        ) { entries, opening, excluded ->
             val current = StatisticsCalculator.compute(entries, p.currency, start, endExclusive, today, zone)
             val previous = prevRange?.let {
                 StatisticsCalculator.compute(entries, p.currency, date(it.startMillis), date(it.endMillis), today, zone)
@@ -153,6 +157,7 @@ class StatisticsViewModel @Inject constructor(
                 opening[p.currency] ?: 0L,
                 current.days.map { it.date },
                 zone,
+                excluded,
             )
             StatsData(
                 currency = p.currency,
@@ -173,6 +178,11 @@ class StatisticsViewModel @Inject constructor(
             },
         )
     }
+
+    /** Счета «не учитывать в общем балансе» — их нет и на графике баланса. */
+    private fun excludedAccountIds(): Flow<Set<String>> = accounts.observeAccounts()
+        .map { list -> list.filter { it.account.excludeFromTotal }.map { it.account.id }.toSet() }
+        .distinctUntilChanged()
 
     private fun categoriesNames(): Flow<Map<String, String>> =
         categories.observeAll().map { list -> list.associate { it.id to it.name } }

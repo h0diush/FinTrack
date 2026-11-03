@@ -58,6 +58,13 @@ data class HomePiggies(
     val phrases: List<String> = emptyList(),
 )
 
+/** Кредиты на главной: ближайшие платежи. */
+data class HomeLoans(
+    val loading: Boolean = true,
+    val upcoming: List<app.fintrack.domain.logic.Loan> = emptyList(),
+    val count: Int = 0,
+)
+
 data class HomeUiState(
     val loading: Boolean = true,
     val hideAmounts: Boolean = false,
@@ -81,6 +88,7 @@ class HomeViewModel @Inject constructor(
     categories: CategoryRepository,
     private val deposits: DepositRepository,
     piggyRepo: PiggyRepository,
+    loanRepo: app.fintrack.data.repository.LoanRepository,
     private val settings: SettingsRepository,
 ) : ViewModel() {
 
@@ -116,7 +124,9 @@ class HomeViewModel @Inject constructor(
         summary,
     ) { s, accs, totals, recent, sum ->
         val active = accs.filter { !it.account.isArchived }
-        val regular = active.count { it.account.type != app.fintrack.domain.model.AccountType.PIGGY }
+        val regular = active.count {
+            it.account.type != app.fintrack.domain.model.AccountType.PIGGY && it.account.type != app.fintrack.domain.model.AccountType.LOAN
+        }
         val balances = app.fintrack.domain.logic.BalanceCalculator.totalByCurrency(active)
         val currencies = (listOf(s.baseCurrency) + balances.keys + totals.keys).distinct()
         HomeUiState(
@@ -142,6 +152,11 @@ class HomeViewModel @Inject constructor(
         } ?: emptyList()
         HomePiggies(loading = false, items = items, phrases = phrases)
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomePiggies())
+
+    val loans: StateFlow<HomeLoans> = loanRepo.observeAll().map { list ->
+        val open = list.filter { !it.isPaidOff }.sortedBy { it.nextDate }
+        HomeLoans(loading = false, upcoming = open.take(3), count = open.size)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeLoans())
 
     fun toggleHidden() {
         viewModelScope.launch { settings.setHideAmounts(!state.value.hideAmounts) }

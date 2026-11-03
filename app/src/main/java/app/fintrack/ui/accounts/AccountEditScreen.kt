@@ -287,7 +287,7 @@ private fun TypeDropdown(selected: AccountType, onSelect: (AccountType) -> Unit)
                 .menuAnchor(MenuAnchorType.PrimaryNotEditable),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            AccountType.entries.filter { it != AccountType.PIGGY }.forEach { t ->
+            AccountType.entries.filter { it != AccountType.PIGGY && it != AccountType.LOAN }.forEach { t ->
                 DropdownMenuItem(
                     text = { Text(t.title) },
                     onClick = {

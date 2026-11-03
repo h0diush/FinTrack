@@ -188,13 +188,6 @@ def main():
     want_b = {}
     for aid, (cur, init) in accounts.items():
         want_b[cur] = want_b.get(cur, 0) + init + sum(delta(r[1:7], aid) for r in txs2 if r[8] < before)
-    got_b = {r[0]: r[1] for r in db.execute(q["BALANCES_BEFORE"], {"before": before})}
-    check("BALANCES_BEFORE по валютам", got_b, want_b)
-    got_all = {r[0]: r[1] for r in db.execute(q["BALANCES_BEFORE"], {"before": 10**12})}
-    want_all = {}
-    for aid, (cur, _) in accounts.items():
-        want_all[cur] = want_all.get(cur, 0) + expected_balances(txs2)[aid]
-    check("BALANCES_BEFORE(∞) = текущие балансы", got_all, want_all)
     (earliest,) = db.execute(q["EARLIEST_DATE"]).fetchone()
     check("EARLIEST_DATE", earliest, min(t[8] for t in txs2))
 
@@ -282,6 +275,58 @@ def main():
     check("миграция 4→5: старые счета в балансе", n_ex, 0)
     after_rows = db.execute(q["ACCOUNTS_WITH_BALANCE"]).fetchall()
     check("миграция 4→5: балансы не изменились", [r[-1] for r in after_rows], [r[-1] for r in before_rows])
+
+    # 8б. Баланс по валютам на момент времени (колонка excludeFromTotal появилась в 4→5);
+    # к этому моменту в базе есть проценты вклада и копилка — ожидание считаем по всем строкам
+    def expected_before(moment):
+        all_tx = db.execute("SELECT type, accountId, toAccountId, amountMinor, toAmountMinor, feeMinor, dateTime"
+                            " FROM transactions").fetchall()
+        want = {}
+        for aid, cur, init, ex in db.execute("SELECT id, currencyCode, initialBalanceMinor, excludeFromTotal FROM accounts"):
+            if not ex:
+                want[cur] = want.get(cur, 0) + init + sum(delta(t[:6], aid) for t in all_tx if t[6] < moment)
+        return want
+
+    got_b = {r[0]: r[1] for r in db.execute(q["BALANCES_BEFORE"], {"before": before})}
+    check("BALANCES_BEFORE по валютам", got_b, expected_before(before))
+    got_all = {r[0]: r[1] for r in db.execute(q["BALANCES_BEFORE"], {"before": 10**12})}
+    want_all = {}
+    for r in db.execute(q["ACCOUNTS_WITH_BALANCE"]):
+        want_all[r[3]] = want_all.get(r[3], 0) + r[-1]
+    check("BALANCES_BEFORE(∞) = текущие балансы", got_all, want_all)
+
+    # Счёт «не учитывать в общем балансе» не входит в начальную точку графика баланса
+    db.execute("UPDATE accounts SET excludeFromTotal = 1 WHERE id = 'card'")
+    got_inc = {r[0]: r[1] for r in db.execute(q["BALANCES_BEFORE"], {"before": before})}
+    check("BALANCES_BEFORE без счетов вне общего баланса", got_inc, expected_before(before))
+    db.execute("UPDATE accounts SET excludeFromTotal = 0 WHERE id = 'card'")
+
+    # 13а. Миграция 5→6: кредиты; выдача и платежи — операции с id «loan:<кредит>:…»
+    db.execute(m["CREATE_LOANS"])
+    cols = [(r[1], r[2], r[3], r[5]) for r in db.execute("PRAGMA table_info(loans)")]
+    check("миграция 5→6: колонки loans", cols, [
+        ("accountId", "TEXT", 1, 1), ("kind", "TEXT", 1, 0), ("schedule", "TEXT", 1, 0),
+        ("principalMinor", "INTEGER", 1, 0), ("rateBp", "INTEGER", 1, 0), ("startDay", "INTEGER", 1, 0),
+        ("termMonths", "INTEGER", 1, 0), ("initialPaid", "INTEGER", 1, 0), ("interestCategoryId", "TEXT", 0, 0),
+        ("createdAt", "INTEGER", 1, 0)])
+    fk = [(r[2], r[3], r[4], r[6]) for r in db.execute("PRAGMA foreign_key_list(loans)")]
+    check("миграция 5→6: внешний ключ CASCADE на счёт", fk, [("accounts", "accountId", "id", "CASCADE")])
+    db.execute("INSERT INTO accounts VALUES ('loan1','Кредит','LOAN','BYN',0,0,12,0,0,1)")
+    db.execute("INSERT INTO loans VALUES ('loan1','CREDIT','ANNUITY',300000,1500,20000,12,0,'food',0)")
+    db.execute("INSERT INTO transactions VALUES ('loan:loan1:0:d','TRANSFER','loan1','card',300000,300000,0,NULL,10,'','',0,10,10)")
+    db.execute("INSERT INTO transactions VALUES ('loan:loan1:1:p','TRANSFER','card','loan1',23327,23327,0,NULL,20,'','',0,20,20)")
+    db.execute("INSERT INTO transactions VALUES ('loan:loan1:1:i','EXPENSE','card',NULL,3750,NULL,0,'food',20,'','',0,21,21)")
+    (lb,) = db.execute(q["ACCOUNT_BALANCE"], {"accountId": "loan1"}).fetchone()
+    check("долг = −выдача + погашение тела (проценты на долг не влияют)", lb, -300000 + 23327)
+    ids = sorted(r[0] for r in db.execute(q["LOAN_TRANSACTIONS"]))
+    check("LOAN_TRANSACTIONS: выдача и платёж", ids, ["loan:loan1:0:d", "loan:loan1:1:i", "loan:loan1:1:p"])
+    hist = [r[0] for r in db.execute(q["DETAILS_FOR_LOAN"], {"accountId": "loan1", "idPrefix": "loan:loan1:"})]
+    check("DETAILS_FOR_LOAN: проценты со счёта карты тоже в истории", sorted(hist), ids)
+    got_b = {r[0]: r[1] for r in db.execute(q["BALANCES_BEFORE"], {"before": 10**12})}
+    db.execute("UPDATE accounts SET excludeFromTotal = 0 WHERE id = 'loan1'")
+    got_b2 = {r[0]: r[1] for r in db.execute(q["BALANCES_BEFORE"], {"before": 10**12})}
+    check("кредит вне общего баланса не влияет на график баланса", got_b2["BYN"] - got_b["BYN"], lb)
+    db.execute("UPDATE accounts SET excludeFromTotal = 1 WHERE id = 'loan1'")
 
     # 13. Внешний ключ не даёт удалить счёт с операциями
     try:

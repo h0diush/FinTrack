@@ -107,10 +107,13 @@ fun HomeScreen(
     onOpenBudget: () -> Unit,
     onOpenPiggy: (String) -> Unit,
     onNewPiggy: () -> Unit,
+    onOpenLoans: () -> Unit,
+    onOpenLoan: (String) -> Unit,
     vm: HomeViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val piggies by vm.piggies.collectAsStateWithLifecycle()
+    val loans by vm.loans.collectAsStateWithLifecycle()
 
     LazyColumn(
         modifier = Modifier
@@ -158,8 +161,15 @@ fun HomeScreen(
                 PiggySection(piggies, state.hideAmounts, onOpenPiggy, onNewPiggy)
             }
         }
+        if (loans.upcoming.isNotEmpty()) {
+            item {
+                StaggeredAppear(5) {
+                    LoanSection(loans, state.hideAmounts, onOpenLoans, onOpenLoan)
+                }
+            }
+        }
         item {
-            StaggeredAppear(5) {
+            StaggeredAppear(6) {
                 Column {
                     SectionTitle("Последние операции") {
                         if (state.recent.isNotEmpty()) {
@@ -194,6 +204,57 @@ fun HomeScreen(
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Ближайшие платежи по кредитам: сумма, дата, статус (просрочка — красным). */
+@Composable
+private fun LoanSection(
+    loans: HomeLoans,
+    hidden: Boolean,
+    onOpenLoans: () -> Unit,
+    onOpenLoan: (String) -> Unit,
+) {
+    Column(Modifier.padding(top = 4.dp)) {
+        SectionTitle("Платежи по кредитам") {
+            TextButton(onClick = onOpenLoans) {
+                Text(if (loans.count > loans.upcoming.size) "Все (${loans.count})" else "Все")
+                Icon(Icons.Rounded.ChevronRight, null, Modifier.size(IconSize.sm))
+            }
+        }
+        AppCard(modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().animateContentSize()) {
+            Column(Modifier.padding(vertical = 4.dp)) {
+                loans.upcoming.forEachIndexed { i, loan ->
+                    if (i > 0) {
+                        HorizontalDivider(Modifier.padding(start = 70.dp, end = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                    val next = loan.nextPayment()
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .bounceClick(pressedScale = 0.98f) { onOpenLoan(loan.accountId) }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconBadge(app.fintrack.ui.loans.LoanStyle.icon(loan.kind), Color(loan.color), size = 40.dp)
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(loan.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+                            Text(
+                                (if (hidden || next == null) app.fintrack.domain.logic.Money.masked(loan.currency)
+                                else app.fintrack.domain.logic.Money.format(next.paymentMinor, loan.currency)) +
+                                    " · " + loan.nextDate.format(app.fintrack.ui.loans.LOAN_DAY),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        app.fintrack.ui.loans.StatusPill(app.fintrack.ui.loans.loanStatus(loan))
                     }
                 }
             }

@@ -151,6 +151,13 @@ class StatisticsCalculatorTest {
             assertEquals(expected, series.last().balanceMinor)
         }
 
+        // Счёт вне общего баланса: ряд сходится с суммой остальных счетов
+        val excluded = setOf("card")
+        val openingIncluded = initial.filterKeys { currencyOf[it] == "BYN" && it !in excluded }.values.sum()
+        val seriesIncluded = StatisticsCalculator.balanceSeries(entries, "BYN", openingIncluded, days, zone, excluded)
+        val expectedIncluded = finalBalances.filterKeys { currencyOf[it] == "BYN" && it !in excluded }.values.sum()
+        assertEquals(expectedIncluded, seriesIncluded.last().balanceMinor)
+
         // Доходы − расходы + корректировки + чистые переводы = изменение баланса
         val s = StatisticsCalculator.compute(entries, "BYN", start, start.plusDays(120), start.plusDays(200), zone)
         val totals = BalanceCalculator.totals(ledger) { currencyOf.getValue(it) }.getValue("BYN")

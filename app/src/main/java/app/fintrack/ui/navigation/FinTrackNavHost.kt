@@ -85,6 +85,9 @@ import app.fintrack.ui.components.pressScale
 import app.fintrack.ui.editor.EditorScreen
 import app.fintrack.ui.history.HistoryScreen
 import app.fintrack.ui.home.HomeScreen
+import app.fintrack.ui.loans.LoanDetailScreen
+import app.fintrack.ui.loans.LoanEditScreen
+import app.fintrack.ui.loans.LoansScreen
 import app.fintrack.ui.piggy.PiggyDetailScreen
 import app.fintrack.ui.piggy.PiggyEditScreen
 import app.fintrack.ui.settings.SettingsScreen
@@ -167,6 +170,8 @@ fun FinTrackNavHost() {
                     onOpenBudget = { nav.navigateToTab(Routes.BUDGET) },
                     onOpenPiggy = { id -> nav.navigate(Routes.piggy(id)) },
                     onNewPiggy = { nav.navigate(Routes.piggyEdit()) },
+                    onOpenLoans = { nav.navigate(Routes.LOANS) },
+                    onOpenLoan = { id -> nav.navigate(Routes.loan(id)) },
                 )
             }
             composable(Routes.STATS) { StatisticsScreen() }
@@ -193,6 +198,31 @@ fun FinTrackNavHost() {
                     onOpenAccount = { id -> nav.navigate(Routes.accountEdit(id)) },
                     onOpenHistory = { id -> nav.navigate(Routes.accountHistory(id)) },
                     onOpenPiggy = { id -> nav.navigate(Routes.piggy(id)) },
+                    onOpenLoan = { id -> nav.navigate(Routes.loan(id)) },
+                    onOpenLoans = { nav.navigate(Routes.LOANS) },
+                )
+            }
+            composable(Routes.LOANS) {
+                LoansScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenLoan = { id -> nav.navigate(Routes.loan(id)) },
+                    onNewLoan = { kind -> nav.navigate(Routes.loanEdit(kind = kind)) },
+                )
+            }
+            composable(Routes.LOAN, arguments = listOf(navArgument("id") { type = NavType.StringType })) {
+                LoanDetailScreen(
+                    onBack = { nav.popBackStack() },
+                    onEdit = { id -> nav.navigate(Routes.loanEdit(id)) },
+                    onOpenTransaction = { id -> nav.navigate(Routes.editor(id = id)) },
+                    onAddAccount = { nav.navigate(Routes.accountEdit()) },
+                )
+            }
+            composable(Routes.LOAN_EDIT, arguments = listOf(optionalString("id"), optionalString("kind"))) {
+                LoanEditScreen(
+                    onClose = { nav.popBackStack() },
+                    onCreated = { id ->
+                        nav.navigate(Routes.loan(id)) { popUpTo(Routes.LOAN_EDIT) { inclusive = true } }
+                    },
                 )
             }
             composable(Routes.PIGGY, arguments = listOf(navArgument("id") { type = NavType.StringType })) {
@@ -216,6 +246,7 @@ fun FinTrackNavHost() {
                     onBack = { nav.popBackStack() },
                     onOpenCategories = { nav.navigate(Routes.CATEGORIES) },
                     onOpenAccounts = { nav.navigate(Routes.ACCOUNTS) },
+                    onOpenLoans = { nav.navigate(Routes.LOANS) },
                 )
             }
             composable(
