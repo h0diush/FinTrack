@@ -111,6 +111,7 @@ fun HomeScreen(
     onOpenLoan: (String) -> Unit,
     onOpenRecurring: () -> Unit,
     onOpenRecurringItem: (String) -> Unit,
+    onOpenRates: () -> Unit,
     vm: HomeViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -135,7 +136,9 @@ fun HomeScreen(
             }
         }
         item {
-            StaggeredAppear(1) { BalanceCard(state, onClick = onOpenAccounts) }
+            StaggeredAppear(1) {
+                BalanceCard(state, onClick = onOpenAccounts, onSelectCurrency = vm::setDisplayCurrency, onOpenRates = onOpenRates)
+            }
         }
         item {
             StaggeredAppear(2) {
@@ -474,10 +477,14 @@ private fun Header(hidden: Boolean, onToggleHidden: () -> Unit, onOpenSettings: 
 
 /** Главная карточка: градиент, мягкие «блики» и стеклянные плашки доходов/расходов. */
 @Composable
-private fun BalanceCard(state: HomeUiState, onClick: () -> Unit) {
+private fun BalanceCard(
+    state: HomeUiState,
+    onClick: () -> Unit,
+    onSelectCurrency: (String) -> Unit,
+    onOpenRates: () -> Unit,
+) {
     val fin = FinTheme.colors
-    val main = state.lines.firstOrNull()
-    val others = state.lines.drop(1)
+    val total = state.total
     val glow = Color.White
     Column(
         modifier = Modifier
@@ -502,26 +509,47 @@ private fun BalanceCard(state: HomeUiState, onClick: () -> Unit) {
             Icon(Icons.Rounded.ChevronRight, null, tint = fin.onHeroMuted, modifier = Modifier.size(IconSize.sm))
         }
         Spacer(Modifier.height(6.dp))
-        if (main != null) {
-            AmountText(
-                minor = main.balanceMinor,
-                currency = main.currency,
-                hidden = state.hideAmounts,
-                color = fin.onHero,
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Bold,
-                animate = true,
-            )
-        }
-        others.filter { it.balanceMinor != 0L }.forEach { line ->
-            AmountText(
-                minor = line.balanceMinor,
-                currency = line.currency,
-                hidden = state.hideAmounts,
-                color = fin.onHero.copy(alpha = 0.9f),
-                style = MaterialTheme.typography.titleMedium,
-                animate = true,
-            )
+        if (total != null) {
+            FlowRow(verticalArrangement = Arrangement.Center, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                AmountText(
+                    minor = total.balanceMinor,
+                    currency = total.currency,
+                    hidden = state.hideAmounts,
+                    color = fin.onHero,
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold,
+                    animate = true,
+                    modifier = Modifier.align(Alignment.CenterVertically),
+                )
+                if (total.options.size > 1) {
+                    app.fintrack.ui.components.DisplayCurrencyChip(
+                        currency = total.currency,
+                        options = total.options,
+                        onSelect = onSelectCurrency,
+                        contentColor = fin.onHero,
+                        containerColor = Color.White.copy(alpha = 0.16f),
+                        onOpenRates = onOpenRates,
+                        modifier = Modifier.align(Alignment.CenterVertically),
+                    )
+                }
+            }
+            // Из чего сложилась сумма: остатки в других валютах, пересчитанные по курсу
+            if (total.parts.isNotEmpty()) {
+                Text(
+                    "В т.ч. " + total.parts.joinToString(" · ") { (c, v) -> if (state.hideAmounts) Money.masked(c) else Money.format(v, c) } +
+                        " — по курсу",
+                    color = fin.onHeroMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            if (total.missing.isNotEmpty()) {
+                Text(
+                    "Нет курса для ${total.missing.joinToString()} — не учтено в сумме",
+                    color = fin.onHero,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
         if (state.excludedCount > 0) {
             Spacer(Modifier.height(4.dp))
@@ -536,17 +564,17 @@ private fun BalanceCard(state: HomeUiState, onClick: () -> Unit) {
             }
         }
         Spacer(Modifier.height(20.dp))
-        if (main != null) {
+        if (total != null) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                GlassStat("Доходы", Icons.Rounded.ArrowDownward, main.totals.incomeMinor, main.currency, state.hideAmounts, Modifier.weight(1f))
-                GlassStat("Расходы", Icons.Rounded.ArrowUpward, main.totals.expenseMinor, main.currency, state.hideAmounts, Modifier.weight(1f))
+                GlassStat("Доходы", Icons.Rounded.ArrowDownward, total.incomeMinor, total.currency, state.hideAmounts, Modifier.weight(1f))
+                GlassStat("Расходы", Icons.Rounded.ArrowUpward, total.expenseMinor, total.currency, state.hideAmounts, Modifier.weight(1f))
             }
             Spacer(Modifier.height(12.dp))
             FlowRow(verticalArrangement = Arrangement.Center) {
                 Text("${state.monthLabel}: итог ", color = fin.onHeroMuted, style = MaterialTheme.typography.bodySmall)
                 AmountText(
-                    minor = main.totals.netMinor,
-                    currency = main.currency,
+                    minor = total.netMinor,
+                    currency = total.currency,
                     hidden = state.hideAmounts,
                     color = fin.onHero,
                     style = MaterialTheme.typography.bodySmall,
@@ -554,15 +582,6 @@ private fun BalanceCard(state: HomeUiState, onClick: () -> Unit) {
                     animate = true,
                 )
             }
-        }
-        val otherActivity = others.filter { it.totals.incomeMinor != 0L || it.totals.expenseMinor != 0L }
-        if (otherActivity.isNotEmpty()) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Операции в других валютах учтены отдельно: " + otherActivity.joinToString { it.currency },
-                color = fin.onHeroMuted,
-                style = MaterialTheme.typography.bodySmall,
-            )
         }
     }
 }

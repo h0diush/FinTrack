@@ -112,6 +112,7 @@ import app.fintrack.ui.components.StaggeredAppear
 import app.fintrack.ui.components.bounceClick
 import app.fintrack.ui.components.lighten
 import app.fintrack.ui.theme.AmountStyle
+import app.fintrack.ui.piggy.readableOn
 import app.fintrack.ui.theme.FinTheme
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -170,6 +171,21 @@ fun StatisticsScreen(vm: StatisticsViewModel = hiltViewModel()) {
                                 )
                             }
                         }
+                        Text(
+                            "Все счета пересчитаны в ${state.currency} по текущему курсу",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                        )
+                    }
+                    val missing = state.data?.missingRates.orEmpty()
+                    if (missing.isNotEmpty()) {
+                        Text(
+                            "Нет курса для ${missing.sorted().joinToString()} — эти операции не учтены. Курс можно задать в настройках",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = FinTheme.colors.statusCritical.readableOn(MaterialTheme.colorScheme.background),
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                        )
                     }
                 }
             }
@@ -184,7 +200,7 @@ fun StatisticsScreen(vm: StatisticsViewModel = hiltViewModel()) {
             if (!hasData) {
                 item {
                     EmptyState(
-                        "За этот период нет доходов и расходов в ${data.currency}.\nВыберите другой период.",
+                        "За этот период нет доходов и расходов.\nВыберите другой период.",
                         icon = Icons.Rounded.BarChart,
                     )
                 }
@@ -859,7 +875,7 @@ private fun BalanceTrendCard(state: StatisticsUiState) {
     val fin = FinTheme.colors
     SectionCard(
         title = "Баланс",
-        subtitle = "Счета общего баланса в ${d.currency} на конец дня",
+        subtitle = "Счета общего баланса в ${d.currency} на конец дня, по текущему курсу",
         icon = Icons.Rounded.ShowChart,
         iconColor = MaterialTheme.colorScheme.primary,
     ) {

@@ -48,6 +48,8 @@ data class StatsData(
     val monthly: List<MonthPoint>,
     val balance: List<BalancePoint>,
     val insights: List<Insight>,
+    /** Валюты без курса: их операции не попали в пересчёт. */
+    val missingRates: Set<String> = emptySet(),
 )
 
 data class StatisticsUiState(
@@ -76,6 +78,7 @@ class StatisticsViewModel @Inject constructor(
     private val accounts: AccountRepository,
     private val categories: CategoryRepository,
     settings: SettingsRepository,
+    private val rates: app.fintrack.data.repository.RatesRepository,
 ) : ViewModel() {
 
     private val zone: ZoneId = ZoneId.systemDefault()
@@ -84,11 +87,12 @@ class StatisticsViewModel @Inject constructor(
     private val kind = MutableStateFlow(CategoryKind.EXPENSE)
 
     private val currencies: Flow<List<String>> = combine(accounts.observeAccounts(), settings.settings) { list, s ->
-        (listOf(s.baseCurrency) + list.map { it.account.currencyCode }).distinct()
+        app.fintrack.domain.model.displayCurrencyOptions(s.baseCurrency, list.filter { !it.account.isArchived }.map { it.account.currencyCode })
     }.distinctUntilChanged()
 
+    /** Валюта статистики: все счета пересчитываются в неё; по умолчанию — валюта итога на главной. */
     private val currency: Flow<String> = combine(chosenCurrency, settings.settings) { chosen, s ->
-        chosen ?: s.baseCurrency
+        chosen ?: s.totalCurrency
     }.distinctUntilChanged()
 
     private val data: Flow<StatsData?> = combine(period, currency) { p, c -> Params(p, c, LocalDate.now()) }
@@ -145,7 +149,12 @@ class StatisticsViewModel @Inject constructor(
             stats.observeEntries(fetch),
             stats.observeBalancesBefore(range.startMillis),
             excludedAccountIds(),
-        ) { entries, opening, excluded ->
+            rates.state,
+        ) { rawEntries, rawOpening, excluded, r ->
+            // Все операции — в выбранной валюте по текущему курсу.
+            val converter = r.converter
+            val (entries, missing) = converter.convertEntries(rawEntries, p.currency)
+            val opening = mapOf(p.currency to converter.total(rawOpening, p.currency).totalMinor)
             val current = StatisticsCalculator.compute(entries, p.currency, start, endExclusive, today, zone)
             val previous = prevRange?.let {
                 StatisticsCalculator.compute(entries, p.currency, date(it.startMillis), date(it.endMillis), today, zone)
@@ -169,6 +178,7 @@ class StatisticsViewModel @Inject constructor(
                 monthly = StatisticsCalculator.monthly(entries, p.currency, months, zone),
                 balance = balance,
                 insights = emptyList(),
+                missingRates = missing,
             )
         }
     }.combine(categoriesNames()) { d, names ->

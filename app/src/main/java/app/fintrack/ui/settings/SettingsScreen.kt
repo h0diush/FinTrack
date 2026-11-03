@@ -63,6 +63,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.CurrencyExchange
 import androidx.compose.ui.semantics.Role
 import app.fintrack.ui.components.CurrencyPickerDialog
 import app.fintrack.ui.components.currencyTitle
@@ -108,6 +109,7 @@ fun SettingsScreen(
     onOpenAccounts: () -> Unit,
     onOpenLoans: () -> Unit,
     onOpenRecurring: () -> Unit,
+    onOpenRates: () -> Unit,
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val s by vm.settings.collectAsStateWithLifecycle()
@@ -147,6 +149,8 @@ fun SettingsScreen(
                         currencyTitle(s.baseCurrency),
                         Color(0xFF10B981),
                     ) { showCurrency = true }
+                    SettingsDivider()
+                    SettingRow(Icons.Rounded.CurrencyExchange, "Курсы валют", "НБРБ каждый день, можно задать свой курс", Color(0xFF0D9488), onClick = onOpenRates)
                     SettingsDivider()
                     Row(
                         modifier = Modifier

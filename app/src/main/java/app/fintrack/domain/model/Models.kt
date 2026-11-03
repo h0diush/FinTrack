@@ -132,4 +132,12 @@ data class AppSettings(
     val budgetWarningPercent: Int = 80,
     /** Уведомлять, когда расходы пересекают пороги бюджета. */
     val budgetAlerts: Boolean = true,
-)
+    /** В какой валюте показывать общий баланс (все счета пересчитываются); null — основная валюта. */
+    val displayCurrency: String? = null,
+) {
+    val totalCurrency: String get() = displayCurrency ?: baseCurrency
+}
+
+/** Валюты для выбора отображения: основная, валюты счетов и самые ходовые. */
+fun displayCurrencyOptions(base: String, accountCurrencies: Collection<String>): List<String> =
+    (listOf(base) + accountCurrencies + listOf("BYN", "USD", "EUR", "RUB")).distinct()

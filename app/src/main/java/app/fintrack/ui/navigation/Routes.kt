@@ -18,6 +18,7 @@ object Routes {
     const val PIGGY = "piggy/{id}"
     const val PIGGY_EDIT = "piggy_edit?id={id}"
     const val RECURRING = "recurring"
+    const val RATES = "rates"
     const val LOANS = "loans"
     const val LOAN = "loan/{id}"
     const val LOAN_EDIT = "loan_edit?id={id}&kind={kind}"

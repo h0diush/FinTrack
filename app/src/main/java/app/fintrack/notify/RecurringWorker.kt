@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit
 @InstallIn(SingletonComponent::class)
 interface RecurringEntryPoint {
     fun recurring(): RecurringRepository
+    fun rates(): app.fintrack.data.repository.RatesRepository
 }
 
 fun Context.recurringRepository(): RecurringRepository =
@@ -37,6 +38,10 @@ class RecurringWorker(context: Context, params: WorkerParameters) : CoroutineWor
         val posted = repo.processDue()
         RecurringNotifier.notifyPosted(applicationContext, posted)
         RecurringNotifier.notifyDue(applicationContext, repo.dueForConfirmation())
+        // Заодно освежить курсы НБРБ (без сети — не страшно, останутся прежние).
+        runCatching {
+            dagger.hilt.android.EntryPointAccessors.fromApplication(applicationContext, RecurringEntryPoint::class.java).rates().refresh()
+        }
         return Result.success()
     }
 

@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package app.fintrack.ui.accounts
 
@@ -53,6 +53,7 @@ import app.fintrack.ui.components.AppCard
 import app.fintrack.ui.components.EmptyState
 import app.fintrack.ui.components.IconBadge
 import app.fintrack.ui.components.SectionTitle
+import app.fintrack.ui.piggy.readableOn
 import app.fintrack.ui.theme.FinTheme
 
 private val DEPOSIT_END: java.time.format.DateTimeFormatter =
@@ -67,6 +68,7 @@ fun AccountsScreen(
     onOpenPiggy: (String) -> Unit,
     onOpenLoan: (String) -> Unit,
     onOpenLoans: () -> Unit,
+    onOpenRates: () -> Unit,
     vm: AccountsViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -94,17 +96,49 @@ fun AccountsScreen(
                 AppCard(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) {
                     Column(Modifier.padding(20.dp)) {
                         Text("Всего на счетах", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (state.totals.isEmpty()) {
+                        val total = state.total
+                        if (total == null) {
                             Text("—", style = MaterialTheme.typography.headlineMedium)
-                        }
-                        state.totals.forEachIndexed { i, (currency, sum) ->
-                            AmountText(
-                                minor = sum,
-                                currency = currency,
-                                hidden = state.hideAmounts,
-                                animate = true,
-                                style = if (i == 0) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleMedium,
-                            )
+                        } else {
+                            androidx.compose.foundation.layout.FlowRow(
+                                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+                            ) {
+                                AmountText(
+                                    minor = total.totalMinor,
+                                    currency = total.currency,
+                                    hidden = state.hideAmounts,
+                                    animate = true,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    modifier = Modifier.align(Alignment.CenterVertically),
+                                )
+                                if (state.currencyOptions.size > 1) {
+                                    app.fintrack.ui.components.DisplayCurrencyChip(
+                                        currency = total.currency,
+                                        options = state.currencyOptions,
+                                        onSelect = vm::setDisplayCurrency,
+                                        contentColor = MaterialTheme.colorScheme.onSurface,
+                                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        onOpenRates = onOpenRates,
+                                        modifier = Modifier.align(Alignment.CenterVertically),
+                                    )
+                                }
+                            }
+                            if (state.parts.isNotEmpty()) {
+                                Text(
+                                    "В т.ч. " + state.parts.joinToString(" · ") { (c, v) ->
+                                        if (state.hideAmounts) app.fintrack.domain.logic.Money.masked(c) else app.fintrack.domain.logic.Money.format(v, c)
+                                    } + " — по курсу",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (total.missing.isNotEmpty()) {
+                                Text(
+                                    "Нет курса для ${total.missing.joinToString()} — не учтено. Задайте курс в «Курсах валют»",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = FinTheme.colors.statusCritical.readableOn(MaterialTheme.colorScheme.surfaceContainer),
+                                )
+                            }
                         }
                         if (state.excludedCount > 0) {
                             Spacer(Modifier.height(4.dp))

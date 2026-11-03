@@ -87,6 +87,7 @@ import app.fintrack.ui.history.HistoryScreen
 import app.fintrack.ui.home.HomeScreen
 import app.fintrack.notify.RecurringNotifier
 import app.fintrack.ui.loans.LoanDetailScreen
+import app.fintrack.ui.rates.RatesScreen
 import app.fintrack.ui.recurring.RecurringScreen
 import app.fintrack.ui.loans.LoanEditScreen
 import app.fintrack.ui.loans.LoansScreen
@@ -186,6 +187,7 @@ fun FinTrackNavHost(openRequest: String? = null, onOpenHandled: () -> Unit = {})
                     onOpenLoan = { id -> nav.navigate(Routes.loan(id)) },
                     onOpenRecurring = { nav.navigate(Routes.RECURRING) },
                     onOpenRecurringItem = { id -> nav.navigate(Routes.recurringEdit(id)) },
+                    onOpenRates = { nav.navigate(Routes.RATES) },
                 )
             }
             composable(Routes.STATS) { StatisticsScreen() }
@@ -214,8 +216,10 @@ fun FinTrackNavHost(openRequest: String? = null, onOpenHandled: () -> Unit = {})
                     onOpenPiggy = { id -> nav.navigate(Routes.piggy(id)) },
                     onOpenLoan = { id -> nav.navigate(Routes.loan(id)) },
                     onOpenLoans = { nav.navigate(Routes.LOANS) },
+                    onOpenRates = { nav.navigate(Routes.RATES) },
                 )
             }
+            composable(Routes.RATES) { RatesScreen(onBack = { nav.popBackStack() }) }
             composable(Routes.RECURRING) {
                 RecurringScreen(
                     onBack = { nav.popBackStack() },
@@ -269,6 +273,7 @@ fun FinTrackNavHost(openRequest: String? = null, onOpenHandled: () -> Unit = {})
                     onOpenAccounts = { nav.navigate(Routes.ACCOUNTS) },
                     onOpenLoans = { nav.navigate(Routes.LOANS) },
                     onOpenRecurring = { nav.navigate(Routes.RECURRING) },
+                    onOpenRates = { nav.navigate(Routes.RATES) },
                 )
             }
             composable(

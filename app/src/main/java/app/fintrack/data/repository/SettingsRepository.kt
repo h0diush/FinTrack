@@ -33,6 +33,7 @@ class SettingsRepository @Inject constructor(
         val BUDGET_INFO = intPreferencesKey("budget_info_percent")
         val BUDGET_WARNING = intPreferencesKey("budget_warning_percent")
         val BUDGET_ALERTS = booleanPreferencesKey("budget_alerts")
+        val DISPLAY_CURRENCY = stringPreferencesKey("display_currency")
         val ALERT_MONTH = intPreferencesKey("budget_alert_month")
         val ALERT_LEVELS = stringPreferencesKey("budget_alert_levels")
     }
@@ -52,6 +53,7 @@ class SettingsRepository @Inject constructor(
                 budgetInfoPercent = p[Keys.BUDGET_INFO] ?: defaults.budgetInfoPercent,
                 budgetWarningPercent = p[Keys.BUDGET_WARNING] ?: defaults.budgetWarningPercent,
                 budgetAlerts = p[Keys.BUDGET_ALERTS] ?: defaults.budgetAlerts,
+                displayCurrency = p[Keys.DISPLAY_CURRENCY],
             )
         }
 
@@ -72,6 +74,10 @@ class SettingsRepository @Inject constructor(
             it[Keys.BUDGET_INFO] = infoPercent
             it[Keys.BUDGET_WARNING] = warningPercent
         }
+    }
+
+    suspend fun setDisplayCurrency(code: String) {
+        store.edit { it[Keys.DISPLAY_CURRENCY] = code }
     }
 
     suspend fun setBudgetAlerts(enabled: Boolean) {

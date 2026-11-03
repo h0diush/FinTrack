@@ -2,10 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!--
-        Единственное разрешение — уведомления о регулярных платежах (Android 13+ спрашивает его).
-        Интернета нет: приложение работает полностью офлайн.
+        Уведомления — о регулярных платежах и бюджете (Android 13+ спрашивает разрешение).
+        Интернет — только для загрузки официальных курсов НБРБ; данные пользователя никуда не уходят,
+        без сети всё работает на сохранённых курсах.
         allowBackup=false — финансовые данные не уходят в облачный автобэкап Google;
         собственное шифрованное резервное копирование — этап 5 ТЗ.
     -->

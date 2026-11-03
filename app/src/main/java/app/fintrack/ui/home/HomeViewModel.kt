@@ -45,7 +45,21 @@ import java.time.YearMonth
 import java.time.ZoneId
 import javax.inject.Inject
 
-data class CurrencyLine(val currency: String, val balanceMinor: Long, val totals: PeriodTotals)
+/**
+ * Общий баланс и итоги месяца в валюте отображения: все счета пересчитаны по курсу.
+ * [parts] — остатки в других валютах (как есть), [missing] — валюты без курса, не вошли в сумму.
+ */
+data class HomeTotal(
+    val currency: String,
+    val balanceMinor: Long,
+    val incomeMinor: Long,
+    val expenseMinor: Long,
+    val parts: List<Pair<String, Long>>,
+    val missing: List<String>,
+    val options: List<String>,
+) {
+    val netMinor: Long get() = incomeMinor - expenseMinor
+}
 
 /** Сводка для главной: бюджет месяца и расходы за 7 дней в основной валюте. */
 data class HomeSummary(
@@ -86,7 +100,7 @@ data class HomeUiState(
     val monthLabel: String = "",
     val baseCurrency: String = "BYN",
     /** Первой идёт основная валюта, затем остальные, где есть счета или движение. */
-    val lines: List<CurrencyLine> = emptyList(),
+    val total: HomeTotal? = null,
     val recent: List<TransactionDetails> = emptyList(),
     val accountsCount: Int = 0,
     /** Счета (и копилки) с выключенным «Учитывать в общем балансе». */
@@ -105,6 +119,7 @@ class HomeViewModel @Inject constructor(
     piggyRepo: PiggyRepository,
     loanRepo: app.fintrack.data.repository.LoanRepository,
     private val recurringRepo: RecurringRepository,
+    private val rates: app.fintrack.data.repository.RatesRepository,
     @ApplicationContext context: android.content.Context,
     private val settings: SettingsRepository,
 ) : ViewModel() {
@@ -114,6 +129,8 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch { deposits.postDueInterest() }
         // Провести автоматические регулярные платежи, наступившие с прошлого запуска.
         viewModelScope.launch { recurringRepo.processDue() }
+        // Курсы НБРБ — не чаще раза в несколько часов; без сети работают сохранённые.
+        viewModelScope.launch { rates.refresh() }
     }
 
     private val zone: ZoneId = ZoneId.systemDefault()
@@ -136,24 +153,37 @@ class HomeViewModel @Inject constructor(
     }.flowOn(Dispatchers.Default)
 
     val state: StateFlow<HomeUiState> = combine(
-        settings.settings,
+        combine(settings.settings, rates.state) { s, r -> s to r },
         accounts.observeAccounts(),
         transactions.observeTotals(monthRange),
         transactions.observeRecent(RECENT_LIMIT),
         summary,
-    ) { s, accs, totals, recent, sum ->
+    ) { (s, r), accs, totals, recent, sum ->
         val active = accs.filter { !it.account.isArchived }
         val regular = active.count {
             it.account.type != app.fintrack.domain.model.AccountType.PIGGY && it.account.type != app.fintrack.domain.model.AccountType.LOAN
         }
         val balances = app.fintrack.domain.logic.BalanceCalculator.totalByCurrency(active)
-        val currencies = (listOf(s.baseCurrency) + balances.keys + totals.keys).distinct()
+        val target = s.totalCurrency
+        val conv = r.converter
+        val balance = conv.total(balances, target)
+        val income = conv.total(totals.mapValues { it.value.incomeMinor }, target)
+        val expense = conv.total(totals.mapValues { it.value.expenseMinor }, target)
+        val total = HomeTotal(
+            currency = target,
+            balanceMinor = balance.totalMinor,
+            incomeMinor = income.totalMinor,
+            expenseMinor = expense.totalMinor,
+            parts = balances.filter { it.key != target && it.value != 0L }.toList().sortedBy { it.first },
+            missing = (balance.missing + income.missing + expense.missing).distinct(),
+            options = app.fintrack.domain.model.displayCurrencyOptions(s.baseCurrency, active.map { it.account.currencyCode }),
+        )
         HomeUiState(
             loading = false,
             hideAmounts = s.hideAmounts,
             monthLabel = Periods.label(month, today),
             baseCurrency = s.baseCurrency,
-            lines = currencies.map { c -> CurrencyLine(c, balances[c] ?: 0L, totals[c] ?: PeriodTotals.ZERO) },
+            total = total,
             recent = recent,
             accountsCount = regular,
             excludedCount = active.count { it.account.excludeFromTotal },
@@ -194,6 +224,10 @@ class HomeViewModel @Inject constructor(
 
     fun confirmRecurring(item: RecurringItem, amountText: String?): String? = recurringActions.confirm(viewModelScope, item, amountText)
     fun skipRecurring(item: RecurringItem) = recurringActions.skip(viewModelScope, item)
+
+    fun setDisplayCurrency(code: String) {
+        viewModelScope.launch { settings.setDisplayCurrency(code) }
+    }
 
     fun toggleHidden() {
         viewModelScope.launch { settings.setHideAmounts(!state.value.hideAmounts) }

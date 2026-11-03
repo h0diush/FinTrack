@@ -38,8 +38,11 @@ data class AccountsUiState(
     /** Кредиты — свой раздел и свой экран. */
     val loans: List<app.fintrack.domain.logic.Loan> = emptyList(),
     val archived: List<AccountWithBalance> = emptyList(),
-    /** Итог по валютам, основная валюта первой. */
-    val totals: List<Pair<String, Long>> = emptyList(),
+    /** Итог в валюте отображения: все счета пересчитаны по курсу. */
+    val total: app.fintrack.domain.logic.ConvertedTotal? = null,
+    /** Остатки в других валютах (как есть) — из чего сложился итог. */
+    val parts: List<Pair<String, Long>> = emptyList(),
+    val currencyOptions: List<String> = emptyList(),
     val hideAmounts: Boolean = false,
     /** Сколько активных счетов не входит в общий баланс. */
     val excludedCount: Int = 0,
@@ -50,32 +53,39 @@ data class AccountsUiState(
 @HiltViewModel
 class AccountsViewModel @Inject constructor(
     private val accounts: AccountRepository,
-    settings: SettingsRepository,
+    private val settings: SettingsRepository,
     depositRepo: DepositRepository,
     loanRepo: app.fintrack.data.repository.LoanRepository,
+    rates: app.fintrack.data.repository.RatesRepository,
 ) : ViewModel() {
 
     val state: StateFlow<AccountsUiState> = combine(
         accounts.observeAccounts(),
-        settings.settings,
+        combine(settings.settings, rates.state) { s, r -> s to r },
         depositRepo.observeAll(),
         loanRepo.observeAll(),
-    ) { list, s, deps, loans ->
+    ) { list, (s, r), deps, loans ->
         val active = list.filter { !it.account.isArchived }
         val sums = app.fintrack.domain.logic.BalanceCalculator.totalByCurrency(active)
-        val order = (listOf(s.baseCurrency) + sums.keys).distinct().filter { it in sums }
+        val target = s.totalCurrency
         AccountsUiState(
             loading = false,
             active = active.filter { it.account.type != AccountType.PIGGY && it.account.type != AccountType.LOAN },
             loans = loans,
             piggies = active.filter { it.account.type == AccountType.PIGGY },
             archived = list.filter { it.account.isArchived && it.account.type != AccountType.LOAN },
-            totals = order.map { it to sums.getValue(it) },
+            total = if (sums.isEmpty()) null else r.converter.total(sums, target),
+            parts = sums.filter { it.key != target && it.value != 0L }.toList().sortedBy { it.first },
+            currencyOptions = app.fintrack.domain.model.displayCurrencyOptions(s.baseCurrency, active.map { it.account.currencyCode }),
             hideAmounts = s.hideAmounts,
             excludedCount = active.count { it.account.excludeFromTotal },
             deposits = deps.associateBy { it.accountId },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AccountsUiState())
+
+    fun setDisplayCurrency(code: String) {
+        viewModelScope.launch { settings.setDisplayCurrency(code) }
+    }
 
     fun move(id: String, direction: Int) {
         viewModelScope.launch { accounts.move(id, direction) }
