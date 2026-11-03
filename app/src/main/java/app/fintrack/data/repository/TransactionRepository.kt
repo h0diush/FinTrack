@@ -68,6 +68,8 @@ class TransactionRepository @Inject constructor(
         payee: String,
         comment: String,
         isFavorite: Boolean,
+        /** Сумма в другой валюте (справочно) — только для доходов и расходов. */
+        original: Pair<Long, String>? = null,
     ): String = db.withTransaction {
         val now = System.currentTimeMillis()
         val existing = id?.let { dao.getById(it) }
@@ -86,6 +88,8 @@ class TransactionRepository @Inject constructor(
             isFavorite = isFavorite,
             createdAt = existing?.createdAt ?: now,
             updatedAt = now,
+            originalAmountMinor = original?.first?.takeIf { value.type != TransactionType.TRANSFER },
+            originalCurrency = original?.second?.takeIf { value.type != TransactionType.TRANSFER },
         )
         if (existing != null) dao.update(tx.toEntity()) else dao.insert(tx.toEntity())
         tx.id

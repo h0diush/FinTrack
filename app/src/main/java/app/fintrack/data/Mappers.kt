@@ -36,6 +36,7 @@ fun TransactionEntity.toDomain() = Transaction(
     amountMinor = amountMinor, toAmountMinor = toAmountMinor, feeMinor = feeMinor,
     categoryId = categoryId, dateTime = dateTime, payee = payee, comment = comment,
     isFavorite = isFavorite, createdAt = createdAt, updatedAt = updatedAt,
+    originalAmountMinor = originalAmountMinor, originalCurrency = originalCurrency,
 )
 
 fun Transaction.toEntity() = TransactionEntity(
@@ -43,6 +44,7 @@ fun Transaction.toEntity() = TransactionEntity(
     amountMinor = amountMinor, toAmountMinor = toAmountMinor, feeMinor = feeMinor,
     categoryId = categoryId, dateTime = dateTime, payee = payee, comment = comment,
     isFavorite = isFavorite, createdAt = createdAt, updatedAt = updatedAt,
+    originalAmountMinor = originalAmountMinor, originalCurrency = originalCurrency,
 )
 
 fun TransactionDetailsRow.toDomain() = TransactionDetails(

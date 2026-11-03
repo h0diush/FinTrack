@@ -92,6 +92,12 @@ data class Transaction(
     val isFavorite: Boolean,
     val createdAt: Long,
     val updatedAt: Long,
+    /**
+     * Исходная сумма, если платили в другой валюте (20 USD с карты в BYN): только для справки.
+     * Баланс и статистика считаются по [amountMinor] — сумме в валюте счёта.
+     */
+    val originalAmountMinor: Long? = null,
+    val originalCurrency: String? = null,
 )
 
 /** Операция вместе с данными для отображения в списках. */

@@ -71,6 +71,9 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -290,6 +293,7 @@ fun EditorScreen(
                     focusManager.clearFocus()
                     showKeypad = true
                 },
+                onCurrency = vm::setForeignCurrency,
             )
 
             Column(
@@ -299,6 +303,40 @@ fun EditorScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(bottom = 12.dp),
             ) {
+                // Покупка в другой валюте: сколько на самом деле списано со счёта.
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = state.isForeign,
+                    enter = expandVertically(tween(Motion.MEDIUM_MS)) + fadeIn(),
+                    exit = shrinkVertically(tween(Motion.SHORT_MS)) + fadeOut(tween(Motion.SHORT_MS)),
+                ) {
+                    val converted = state.convertedMinor
+                    val debitError = ValidationError.DEBIT_REQUIRED in state.errors
+                    OutlinedTextField(
+                        value = state.debitText,
+                        onValueChange = vm::setDebit,
+                        label = { Text(if (state.type == TransactionType.INCOME) "Зачислено на счёт" else "Списано со счёта") },
+                        placeholder = { Text(converted?.let { Money.toInput(it, state.currency) } ?: "Сумма в ${state.currency}") },
+                        suffix = { Text(state.currency) },
+                        isError = debitError,
+                        supportingText = {
+                            Text(
+                                when {
+                                    debitError -> ValidationError.DEBIT_REQUIRED.message
+                                    converted != null -> "По курсу — ${Money.format(converted, state.currency)}. Если банк списал другую сумму, впишите её"
+                                    else -> "Курса ${state.entryCurrency} нет — впишите сумму из банка или задайте курс в настройках"
+                                },
+                            )
+                        },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.medium,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .onFocusChanged { if (it.isFocused) showKeypad = false },
+                    )
+                }
+
                 // Блок полей мягко сменяется при переключении типа операции.
                 AnimatedContent(
                     targetState = state.type,
@@ -674,7 +712,14 @@ private fun TypeSelector(selected: TransactionType, onSelect: (TransactionType) 
 }
 
 @Composable
-private fun AmountDisplay(state: EditorUiState, accent: Color, isAdjustment: Boolean, keypadVisible: Boolean, onClick: () -> Unit) {
+private fun AmountDisplay(
+    state: EditorUiState,
+    accent: Color,
+    isAdjustment: Boolean,
+    keypadVisible: Boolean,
+    onClick: () -> Unit,
+    onCurrency: (String) -> Unit,
+) {
     val amountError = ValidationError.AMOUNT_REQUIRED in state.errors || ValidationError.AMOUNT_TOO_LARGE in state.errors
     var shake by remember { mutableIntStateOf(0) }
     LaunchedEffect(state.errors) { if (amountError) shake++ }
@@ -715,12 +760,16 @@ private fun AmountDisplay(state: EditorUiState, accent: Color, isAdjustment: Boo
                 textAlign = TextAlign.End,
             )
             Spacer(Modifier.width(8.dp))
-            Text(
-                state.currency,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
+            if (state.canForeign) {
+                EntryCurrencyChip(state, accent, onCurrency, Modifier.padding(bottom = 6.dp))
+            } else {
+                Text(
+                    state.currency,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
         }
         AnimatedVisibility(
             visible = !keypadVisible,
@@ -741,15 +790,24 @@ private fun AmountDisplay(state: EditorUiState, accent: Color, isAdjustment: Boo
             }
         }
         val preview = state.preview
+        val converted = state.convertedMinor
         val hint: Pair<String, Color>? = when {
             amountError -> state.errors.first {
                 it == ValidationError.AMOUNT_REQUIRED || it == ValidationError.AMOUNT_TOO_LARGE
             }.message to MaterialTheme.colorScheme.error
             state.hasOperators && preview != null -> {
-                val minor = Money.toMinor(preview, state.currency)
-                (if (minor != null) "= " + Money.format(minor, state.currency) else "= слишком большое число") to
+                val minor = Money.toMinor(preview, state.entryCurrency)
+                (if (minor != null) "= " + Money.format(minor, state.entryCurrency) else "= слишком большое число") to
                     MaterialTheme.colorScheme.onSurfaceVariant
             }
+            // Покупка в другой валюте — сразу видно, сколько это в валюте счёта.
+            state.isForeign && state.debitText.isNotBlank() ->
+                (Money.parse(state.debitText, state.currency)?.let { "Со счёта: " + Money.format(it, state.currency) } ?: "Проверьте сумму списания") to
+                    MaterialTheme.colorScheme.onSurfaceVariant
+            state.isForeign && converted != null ->
+                "≈ ${Money.format(converted, state.currency)} по курсу" to MaterialTheme.colorScheme.onSurfaceVariant
+            state.isForeign && state.foreignMinor != null ->
+                "Нет курса ${state.entryCurrency} — укажите сумму списания" to MaterialTheme.colorScheme.error
             else -> null
         }
         AnimatedVisibility(
@@ -760,6 +818,57 @@ private fun AmountDisplay(state: EditorUiState, accent: Color, isAdjustment: Boo
             val (text, hintColor) = hint ?: ("" to Color.Unspecified)
             Text(text, color = hintColor, style = MaterialTheme.typography.titleMedium.merge(AmountStyle))
         }
+    }
+}
+
+/** «BYN ▾» у суммы: валюта покупки. Валюта счёта — по умолчанию; другая — пересчёт по курсу. */
+@Composable
+private fun EntryCurrencyChip(state: EditorUiState, accent: Color, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
+    var open by remember { mutableStateOf(false) }
+    var pickOther by remember { mutableStateOf(false) }
+    val foreign = state.isForeign
+    Box(modifier) {
+        Row(
+            Modifier
+                .heightIn(min = 36.dp)
+                .clip(CircleShape)
+                .background(if (foreign) accent.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceContainerHigh)
+                .bounceClick(pressedScale = 0.94f, role = androidx.compose.ui.semantics.Role.DropdownList, onClickLabel = "Валюта суммы") { open = true }
+                .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                state.entryCurrency,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (foreign) accent.readableOn(MaterialTheme.colorScheme.background) else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Icon(Icons.Rounded.KeyboardArrowDown, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            Text(
+                "Валюта покупки",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+            val options = app.fintrack.domain.model.displayCurrencyOptions(state.currency, state.accounts.map { it.account.currencyCode }) +
+                listOfNotNull(state.foreignCurrency)
+            options.distinct().forEach { c ->
+                DropdownMenuItem(
+                    text = { Text(if (c == state.currency) "$c — валюта счёта" else app.fintrack.ui.components.currencyTitle(c)) },
+                    trailingIcon = { if (c == state.entryCurrency) Icon(Icons.Rounded.CheckCircle, null) },
+                    onClick = { open = false; onSelect(c) },
+                )
+            }
+            DropdownMenuItem(text = { Text("Другая валюта…") }, onClick = { open = false; pickOther = true })
+        }
+    }
+    if (pickOther) {
+        app.fintrack.ui.components.CurrencyPickerDialog(
+            selected = state.entryCurrency,
+            onSelect = { onSelect(it); pickOther = false },
+            onDismiss = { pickOther = false },
+        )
     }
 }
 

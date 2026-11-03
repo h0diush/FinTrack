@@ -103,5 +103,18 @@ object Migrations {
         }
     }
 
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+    /** 7 → 8: исходная сумма и валюта операции (платёж в другой валюте). Старые операции — без неё. */
+    const val ADD_ORIGINAL_AMOUNT = "ALTER TABLE `transactions` ADD COLUMN `originalAmountMinor` INTEGER"
+    const val ADD_ORIGINAL_CURRENCY = "ALTER TABLE `transactions` ADD COLUMN `originalCurrency` TEXT"
+
+    val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(ADD_ORIGINAL_AMOUNT)
+            db.execSQL(ADD_ORIGINAL_CURRENCY)
+        }
+    }
+
+    val ALL: Array<Migration> = arrayOf(
+        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+    )
 }

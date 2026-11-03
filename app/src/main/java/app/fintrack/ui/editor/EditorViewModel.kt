@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.fintrack.data.repository.AccountRepository
 import app.fintrack.data.repository.CategoryRepository
+import app.fintrack.data.repository.RatesRepository
+import app.fintrack.domain.logic.CurrencyConverter
 import app.fintrack.data.repository.RecurringRepository
 import app.fintrack.data.repository.SettingsRepository
 import app.fintrack.data.repository.TransactionRepository
@@ -63,6 +65,11 @@ data class EditorUiState(
     val repeat: RepeatDraft? = null,
     /** id регулярного платежа в режиме TEMPLATE. */
     val templateId: String? = null,
+    /** Валюта покупки, если не валюта счёта (20 USD с карты в BYN); null — валюта счёта. */
+    val foreignCurrency: String? = null,
+    /** Сколько списано со счёта — если пусто, по курсу. */
+    val debitText: String = "",
+    val converter: CurrencyConverter = CurrencyConverter(emptyMap()),
     /** Сумма корректировки (со знаком), только для просмотра. */
     val adjustmentMinor: Long = 0,
     val errors: Set<ValidationError> = emptySet(),
@@ -77,6 +84,21 @@ data class EditorUiState(
     val currency: String get() = account?.account?.currencyCode ?: baseCurrency
     val toCurrency: String? get() = toAccount?.account?.currencyCode
     val needsToAmount: Boolean get() = type == TransactionType.TRANSFER && toCurrency != null && toCurrency != currency
+
+    /** Можно указать сумму в другой валюте: доход или расход, не регулярный. */
+    val canForeign: Boolean
+        get() = (type == TransactionType.EXPENSE || type == TransactionType.INCOME) && repeat == null && mode != EditorMode.TEMPLATE
+    val isForeign: Boolean get() = canForeign && foreignCurrency != null && foreignCurrency != currency
+
+    /** Валюта, в которой вводится сумма на клавиатуре. */
+    val entryCurrency: String get() = if (isForeign) foreignCurrency!! else currency
+
+    /** Сумма в валюте покупки (по выражению). */
+    val foreignMinor: Long?
+        get() = if (!isForeign) null else ExpressionEvaluator.evaluate(expression)?.takeIf { it.signum() > 0 }?.let { Money.toMinor(it, entryCurrency) }
+
+    /** Сколько спишется по курсу. */
+    val convertedMinor: Long? get() = foreignMinor?.let { converter.convert(it, entryCurrency, currency) }
     val preview: BigDecimal? get() = ExpressionEvaluator.preview(expression)
     val hasOperators: Boolean get() = ExpressionEvaluator.hasOperators(expression)
 
@@ -120,6 +142,7 @@ class EditorViewModel @Inject constructor(
     private val categoriesRepo: CategoryRepository,
     private val settings: SettingsRepository,
     private val recurring: RecurringRepository,
+    rates: RatesRepository,
 ) : ViewModel() {
 
     private val argType: String? = savedState["type"]
@@ -141,6 +164,9 @@ class EditorViewModel @Inject constructor(
         }
         viewModelScope.launch {
             categoriesRepo.observeAll().collect { list -> _state.update { it.copy(categories = list) } }
+        }
+        viewModelScope.launch {
+            rates.state.collect { r -> _state.update { it.copy(converter = r.converter) } }
         }
     }
 
@@ -235,7 +261,14 @@ class EditorViewModel @Inject constructor(
                 mode = if (isCopy) EditorMode.COPY else EditorMode.EDIT,
                 editingId = if (isCopy) null else source.id,
                 type = source.type,
-                expression = if (source.type == TransactionType.ADJUSTMENT) "" else Money.toInput(source.amountMinor, accCurrency),
+                expression = when {
+                    source.type == TransactionType.ADJUSTMENT -> ""
+                    source.originalAmountMinor != null && source.originalCurrency != null ->
+                        Money.toInput(source.originalAmountMinor, source.originalCurrency)
+                    else -> Money.toInput(source.amountMinor, accCurrency)
+                },
+                foreignCurrency = source.originalCurrency?.takeIf { source.originalAmountMinor != null },
+                debitText = if (source.originalCurrency != null && source.originalAmountMinor != null) Money.toInput(source.amountMinor, accCurrency) else "",
                 accountId = source.accountId,
                 toAccountId = source.toAccountId,
                 toAmountText = if (toCurrency != null && toCurrency != accCurrency && source.toAmountMinor != null) {
@@ -294,7 +327,7 @@ class EditorViewModel @Inject constructor(
     fun onKey(key: KeypadKey) {
         _state.update {
             it.copy(
-                expression = KeypadInput.apply(it.expression, key, Money.scale(it.currency)),
+                expression = KeypadInput.apply(it.expression, key, Money.scale(it.entryCurrency)),
                 errors = it.errors - ValidationError.AMOUNT_REQUIRED - ValidationError.AMOUNT_TOO_LARGE,
             )
         }
@@ -302,8 +335,27 @@ class EditorViewModel @Inject constructor(
 
     fun setAccount(id: String) = _state.update {
         val toId = if (it.toAccountId == id) it.accountId else it.toAccountId
-        it.copy(accountId = id, toAccountId = toId, errors = it.errors - ValidationError.ACCOUNT_REQUIRED - ValidationError.SAME_ACCOUNT)
+        val accCurrency = it.accounts.firstOrNull { a -> a.account.id == id }?.account?.currencyCode
+        it.copy(
+            accountId = id,
+            toAccountId = toId,
+            // Счёт в той же валюте, что и покупка, — пересчёт не нужен.
+            foreignCurrency = it.foreignCurrency?.takeIf { c -> c != accCurrency },
+            debitText = if (accCurrency == it.currency) it.debitText else "",
+            errors = it.errors - ValidationError.ACCOUNT_REQUIRED - ValidationError.SAME_ACCOUNT - ValidationError.DEBIT_REQUIRED,
+        )
     }
+
+    /** Валюта покупки; валюта счёта — значит без пересчёта. Сумма на клавиатуре сохраняется. */
+    fun setForeignCurrency(code: String) = _state.update {
+        it.copy(
+            foreignCurrency = code.takeIf { c -> c != it.currency },
+            debitText = "",
+            errors = it.errors - ValidationError.DEBIT_REQUIRED,
+        )
+    }
+
+    fun setDebit(text: String) = _state.update { it.copy(debitText = text.take(20), errors = it.errors - ValidationError.DEBIT_REQUIRED) }
 
     fun setToAccount(id: String) = _state.update {
         val fromId = if (it.accountId == id) it.toAccountId else it.accountId
@@ -342,7 +394,18 @@ class EditorViewModel @Inject constructor(
         }
 
         val evaluated = ExpressionEvaluator.evaluate(s.expression)
-        val amountMinor = evaluated?.takeIf { it.signum() > 0 }?.let { Money.toMinor(it, s.currency) }
+        // Покупка в другой валюте: со счёта списывается указанная сумма или пересчитанная по курсу.
+        val foreign = s.foreignMinor
+        if (s.isForeign && foreign != null && s.debitText.isBlank() && s.convertedMinor == null) {
+            _state.update { it.copy(errors = setOf(ValidationError.DEBIT_REQUIRED)) }
+            return
+        }
+        val amountMinor = when {
+            s.isForeign && foreign == null -> null
+            s.isForeign -> if (s.debitText.isNotBlank()) Money.parse(s.debitText, s.currency) else s.convertedMinor
+            else -> evaluated?.takeIf { it.signum() > 0 }?.let { Money.toMinor(it, s.currency) }
+        }
+        val original = if (s.isForeign && foreign != null) foreign to s.entryCurrency else null
         val toAmountMinor = if (s.needsToAmount) s.toCurrency?.let { Money.parse(s.toAmountText, it) } else null
         val feeMinor = if (s.feeText.isBlank()) 0L else Money.parse(s.feeText, s.currency) ?: -1L
 
@@ -384,7 +447,7 @@ class EditorViewModel @Inject constructor(
                     return
                 }
                 viewModelScope.launch {
-                    transactions.save(s.editingId, result.value, millis, s.payee, s.comment, s.isFavorite)
+                    transactions.save(s.editingId, result.value, millis, s.payee, s.comment, s.isFavorite, original)
                     settings.rememberLastUsed(
                         accountId = result.value.accountId,
                         expenseCategoryId = result.value.categoryId.takeIf { s.type == TransactionType.EXPENSE },

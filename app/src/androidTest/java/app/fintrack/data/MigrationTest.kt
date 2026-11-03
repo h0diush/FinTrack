@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import app.fintrack.data.db.FinTrackDatabase
 import app.fintrack.data.db.Migrations
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -165,6 +166,30 @@ class MigrationTest {
         db.query("SELECT COUNT(*) FROM recurring").use { c ->
             c.moveToFirst()
             assertEquals(0, c.getInt(0))
+        }
+        db.close()
+    }
+
+    @Test
+    fun migrate7To8AddsOriginalAmount() {
+        helper.createDatabase(dbName, 7).apply {
+            execSQL(
+                "INSERT INTO accounts (id, name, type, currencyCode, initialBalanceMinor, color, sortOrder, isArchived, createdAt, excludeFromTotal) " +
+                    "VALUES ('c', 'Карта', 'CARD', 'BYN', 100000, 0, 0, 0, 0, 0)",
+            )
+            execSQL(
+                "INSERT INTO transactions (id, type, accountId, toAccountId, amountMinor, toAmountMinor, feeMinor, categoryId, " +
+                    "dateTime, payee, comment, isFavorite, createdAt, updatedAt) " +
+                    "VALUES ('t', 'INCOME', 'c', NULL, 5000, NULL, 0, NULL, 1, '', '', 0, 1, 1)",
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(dbName, 8, true, *Migrations.ALL)
+        db.query("SELECT amountMinor, originalAmountMinor, originalCurrency FROM transactions WHERE id = 't'").use { c ->
+            c.moveToFirst()
+            assertEquals(5000, c.getInt(0))
+            assertTrue(c.isNull(1))
+            assertTrue(c.isNull(2))
         }
         db.close()
     }

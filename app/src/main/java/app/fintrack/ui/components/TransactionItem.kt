@@ -153,6 +153,9 @@ fun TransactionItem(
                     "→ " + Money.format(tx.toAmountMinor ?: 0, item.toAccountCurrency)
                 tx.type == TransactionType.TRANSFER && tx.feeMinor > 0 && !hidden ->
                     "комиссия " + Money.format(tx.feeMinor, item.accountCurrency)
+                // Покупка в другой валюте: исходная сумма под списанной
+                tx.originalAmountMinor != null && tx.originalCurrency != null && !hidden ->
+                    Money.format(tx.originalAmountMinor, tx.originalCurrency)
                 else -> null
             }
             if (secondLine != null) {

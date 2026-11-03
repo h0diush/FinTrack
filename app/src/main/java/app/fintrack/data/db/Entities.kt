@@ -93,6 +93,9 @@ data class TransactionEntity(
     val isFavorite: Boolean,
     val createdAt: Long,
     val updatedAt: Long,
+    /** Сумма и валюта покупки, если она не в валюте счёта (справочно). Добавлено в версии 8. */
+    val originalAmountMinor: Long? = null,
+    val originalCurrency: String? = null,
 )
 
 /**

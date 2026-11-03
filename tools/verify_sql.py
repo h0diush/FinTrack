@@ -368,6 +368,22 @@ def main():
     (n,) = db.execute("SELECT COUNT(*) FROM recurring WHERE id = 'r2'").fetchone()
     check("шаблон удаляется вместе со счётом без операций", n, 0)
 
+    # 13в. Миграция 7→8: исходная сумма и валюта операции — справочные, балансы не меняются
+    before_rows = db.execute(q["ACCOUNTS_WITH_BALANCE"]).fetchall()
+    db.execute(m["ADD_ORIGINAL_AMOUNT"])
+    db.execute(m["ADD_ORIGINAL_CURRENCY"])
+    cols = [(r[1], r[2], r[3]) for r in db.execute("PRAGMA table_info(transactions)")][-2:]
+    check("миграция 7→8: колонки исходной суммы", cols, [("originalAmountMinor", "INTEGER", 0), ("originalCurrency", "TEXT", 0)])
+    (n_orig,) = db.execute("SELECT COUNT(*) FROM transactions WHERE originalCurrency IS NOT NULL").fetchone()
+    check("миграция 7→8: у старых операций исходной суммы нет", n_orig, 0)
+    after_rows = db.execute(q["ACCOUNTS_WITH_BALANCE"]).fetchall()
+    check("миграция 7→8: балансы не изменились", [r[-1] for r in after_rows], [r[-1] for r in before_rows])
+    db.execute("INSERT INTO transactions VALUES ('fx1','EXPENSE','cash',NULL,5910,NULL,0,'food',7,'','',0,7,7,2000,'USD')")
+    (cb,) = db.execute(q["ACCOUNT_BALANCE"], {"accountId": "cash"}).fetchone()
+    check("расход в другой валюте списывает сумму в валюте счёта", cb, after_rows and dict((r[0], r[-1]) for r in after_rows)["cash"] - 5910)
+    row = db.execute(q["DETAILS_BY_ID"], {"id": "fx1"}).fetchone()
+    check("детали операции содержат исходную сумму", (row[14], row[15]), (2000, "USD"))
+
     # 13. Внешний ключ не даёт удалить счёт с операциями
     try:
         db.execute("DELETE FROM accounts WHERE id = 'cash'")
