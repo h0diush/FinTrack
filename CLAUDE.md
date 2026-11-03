@@ -14,7 +14,7 @@ Android-приложение учёта личных финансов по ТЗ 
 
 ## Стек
 
-Kotlin 2.0.21, AGP 8.7.3, Gradle 8.11.1 (нужен **JDK 21**, на JDK 25 не запускается —
+Kotlin 2.0.21, AGP 8.13.2, Gradle 8.13 (нужен **JDK 21**, на JDK 25 не запускается —
 в Android Studio: Settings → Build Tools → Gradle → Gradle JDK = 21 / встроенный JBR),
 compileSdk/targetSdk 35, minSdk 29, Java/JVM target 17.
 Jetpack Compose (BOM 2024.12.01, Material 3), Navigation Compose 2.8.5, Room 2.6.1 (KSP),
