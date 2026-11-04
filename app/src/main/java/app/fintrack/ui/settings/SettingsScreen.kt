@@ -160,6 +160,7 @@ fun SettingsScreen(
     }
     var showTheme by remember { mutableStateOf(false) }
     var showCurrency by remember { mutableStateOf(false) }
+    var showAbout by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -336,10 +337,10 @@ fun SettingsScreen(
                 Column {
                     SettingRow(
                         Icons.Rounded.Info,
-                        "FinTrack ${BuildConfig.VERSION_NAME}",
-                        "Данные хранятся только на этом устройстве. Без рекламы, аккаунтов и передачи данных.",
+                        "FinTrack, версия ${BuildConfig.VERSION_NAME}",
+                        "О приложении и планы на будущее",
                         MaterialTheme.colorScheme.primary,
-                        onClick = null,
+                        onClick = { showAbout = true },
                     )
                 }
             }
@@ -399,6 +400,10 @@ fun SettingsScreen(
             confirmButton = {},
             dismissButton = { TextButton(onClick = { showTheme = false }) { Text("Закрыть") } },
         )
+    }
+
+    if (showAbout) {
+        AboutSheet(onDismiss = { showAbout = false })
     }
 
     if (showCurrency) {
