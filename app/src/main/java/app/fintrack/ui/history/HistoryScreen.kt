@@ -115,7 +115,7 @@ fun HistoryScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
-                placeholder = { Text("Поиск по категории, комментарию, магазину") },
+                placeholder = { Text("Категория, магазин, комментарий", maxLines = 1) },
                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 trailingIcon = {
                     if (state.query.isNotEmpty()) {

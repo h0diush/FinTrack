@@ -66,6 +66,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockReset
@@ -236,6 +237,13 @@ fun SettingsScreen(
                     SettingRow(Icons.Rounded.EventRepeat, "Регулярные платежи", "Подписки, аренда, зарплата — по расписанию", Color(0xFF6D4AFF), onClick = onOpenRecurring)
                     SettingsDivider()
                     SettingRow(Icons.Rounded.RequestQuote, "Кредиты", "Кредиты, рассрочки, ипотека и графики платежей", Color(0xFF059669), onClick = onOpenLoans)
+                    SettingsDivider()
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    SettingRow(Icons.Rounded.Widgets, "Виджет на рабочий стол", "Баланс и кнопки «+ расход» и «+ доход»", Color(0xFF0EA5E9)) {
+                        if (!app.fintrack.notify.WidgetUpdater.requestPin(context)) {
+                            android.widget.Toast.makeText(context, "Добавьте виджет FinTrack через меню рабочего стола", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
                 }
             }
 

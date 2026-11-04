@@ -125,12 +125,14 @@ fun FinTrackNavHost(openRequest: String? = null, onOpenHandled: () -> Unit = {})
     val backStack by nav.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
 
-    // Нажатие на уведомление открывает нужный экран: регулярные платежи или бюджет.
+    // Нажатие на уведомление или кнопку виджета открывает нужный экран.
     androidx.compose.runtime.LaunchedEffect(openRequest) {
-        when (openRequest) {
-            RecurringNotifier.OPEN_RECURRING -> nav.navigate(Routes.RECURRING) { launchSingleTop = true }
-            app.fintrack.notify.BudgetAlertMonitor.OPEN_BUDGET -> nav.navigateToTab(Routes.BUDGET)
-            null -> return@LaunchedEffect
+        when {
+            openRequest == null -> return@LaunchedEffect
+            openRequest == RecurringNotifier.OPEN_RECURRING -> nav.navigate(Routes.RECURRING) { launchSingleTop = true }
+            openRequest == app.fintrack.notify.BudgetAlertMonitor.OPEN_BUDGET -> nav.navigateToTab(Routes.BUDGET)
+            openRequest.startsWith(app.fintrack.notify.WidgetUpdater.ADD_PREFIX) ->
+                nav.navigate(Routes.editor(type = openRequest.removePrefix(app.fintrack.notify.WidgetUpdater.ADD_PREFIX)))
         }
         onOpenHandled()
     }

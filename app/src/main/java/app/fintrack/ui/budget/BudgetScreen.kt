@@ -262,7 +262,7 @@ fun BudgetScreen(vm: BudgetViewModel = hiltViewModel()) {
             item {
                 Text(
                     "Учитываются расходы по счетам в ${state.currency}, включая комиссии переводов (в общем бюджете). " +
-                        "Переводы между своими счетами расходом не считаются. Уведомления о порогах появятся на следующем этапе.",
+                        "Переводы между своими счетами расходом не считаются. Уведомления о порогах включаются в настройках.",
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

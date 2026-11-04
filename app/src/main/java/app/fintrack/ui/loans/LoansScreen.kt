@@ -200,7 +200,7 @@ private fun EmptyLoans(onNewLoan: (String?) -> Unit) {
             Text("Кредитов пока нет", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Добавьте кредит, рассрочку или ипотеку — приложение построит график, напомнит о дате платежа " +
+                "Добавьте кредит, рассрочку или ипотеку — приложение построит график, покажет дату платежа " +
                     "и разделит каждый платёж на проценты и погашение долга",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

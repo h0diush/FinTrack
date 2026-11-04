@@ -20,7 +20,7 @@ Kotlin 2.0.21, AGP 8.13.2, Gradle 8.13 (нужен **JDK 21**, на JDK 25 не 
 compileSdk/targetSdk 35, minSdk 29, Java/JVM target 17.
 Jetpack Compose (BOM 2024.12.01, Material 3), Navigation Compose 2.8.5, Room 2.6.1 (KSP),
 Hilt 2.52, DataStore 1.1.1, WorkManager 2.9.1, Biometric 1.1.0. Шрифт Inter (`res/font`), иконки Material Icons Rounded (extended).
-Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.14.0 (versionCode 16).
+Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.15.0 (versionCode 17).
 
 ## Сборка и проверки (Windows)
 
@@ -63,7 +63,8 @@ app/src/main/java/app/fintrack/
   di/AppModule.kt            Room + миграции, DataStore
   notify/                    RecurringWorker (WorkManager, ежедневно ~9:00), RecurringNotifier (канал, уведомления),
                              RecurringActionReceiver (кнопки «Провести»/«Пропустить» в уведомлении),
-                             BudgetAlertMonitor (следит за бюджетом месяца, запускается в FinTrackApp)
+                             BudgetAlertMonitor (следит за бюджетом месяца, запускается в FinTrackApp),
+                             BalanceWidget (WidgetUpdater и BalanceWidgetProvider — виджет рабочего стола)
   ui/                        theme, components, navigation, charts,
                              home, editor, history, stats, budget, accounts, piggy, loans, recurring, rates, lock, exchange, categories, settings
 ```
@@ -118,6 +119,15 @@ UI зависит от доменных моделей, не от сущност
 - Уведомления бюджета: `BudgetAlertMonitor` считает уровни тем же `BudgetOverviewBuilder`, что экран «Бюджет»,
   и шлёт уведомление только при росте уровня (`BudgetAlerts.evaluate`); показанные уровни месяца хранятся
   в DataStore. Первая проверка (новая установка/версия) запоминает состояние молча.
+
+## Виджет
+
+- Обычный `AppWidgetProvider` + `RemoteViews` (`res/layout/widget_balance.xml`), без Glance: новая зависимость не нужна.
+  В разметке — только то, что поддерживает RemoteViews.
+- `WidgetUpdater` следит за данными, пока жив процесс (запускается в `FinTrackApp`), и рисует по запросу системы
+  (`onUpdate`, раз в 2 часа). Баланс считается тем же `BalanceCalculator.totalByCurrency` и в `AppSettings.totalCurrency`.
+- Суммы видны всем, кто смотрит на экран: при заданном PIN или «Скрывать суммы» виджет показывает маску. Кнопки остаются.
+- Кнопки открывают форму через `RecurringNotifier.EXTRA_OPEN` со значением `add:<тип операции>`; при PIN сначала экран блокировки.
 
 ## Экспорт и импорт
 
@@ -192,7 +202,8 @@ UI зависит от доменных моделей, не от сущност
 (`Routes.LOANS`, `Routes.loan(id)`, `Routes.loanEdit(id, kind)`);
 регулярные платежи — блок на главной, пункт в настройках, уведомление (`Routes.RECURRING`,
 `Routes.recurringEdit(id)`, `Routes.recurringNew()` — форма операции в режиме шаблона);
-резервная копия, экспорт и импорт — раздел «Данные» в настройках (`Routes.BACKUP`, `Routes.EXPORT`, `Routes.IMPORT`).
+резервная копия, экспорт и импорт — раздел «Данные» в настройках (`Routes.BACKUP`, `Routes.EXPORT`, `Routes.IMPORT`);
+виджет добавляется из настроек («Виджет на рабочий стол», `WidgetUpdater.requestPin`) или меню рабочего стола.
 
 ## Что сделано
 
@@ -210,10 +221,10 @@ UI зависит от доменных моделей, не от сущност
 0.12.1 — регулярные платежи в другой валюте (пересчёт по курсу на день платежа).
 0.13 — экспорт в CSV, Excel и PDF, импорт выписок из CSV.
 0.14 — зашифрованные резервные копии и восстановление.
+0.15 — виджет на рабочий стол, полировка экранов, значки строки состояния по теме приложения.
 
 ## Дальше по плану (обсуждать с пользователем перед началом)
 
 - Этап 4 (остаток): автопополнение копилок (по сути есть: регулярный перевод в копилку).
 - Резервные копии: автоматическое создание по расписанию (пароль можно хранить под ключом Keystore).
-- Этап 6: виджет, полировка.
 - Предлагалось: налог на проценты по вкладу, ежемесячное пополнение вклада.

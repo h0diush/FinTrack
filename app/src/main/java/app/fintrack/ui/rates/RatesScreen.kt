@@ -92,6 +92,9 @@ import java.util.Locale
 import javax.inject.Inject
 
 private val RU: Locale = Locale.forLanguageTag("ru")
+
+/** Показываются всегда, даже если все счета в одной валюте. */
+private val MAIN_CURRENCIES = listOf("USD", "EUR", "RUB")
 private val DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMMM", RU)
 private val DAY_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMMM, HH:mm", RU)
 
@@ -143,7 +146,7 @@ class RatesViewModel @Inject constructor(
         val conv = r.converter
         val nbrbConv = CurrencyConverter(r.nbrb.mapValues { it.value.bynPerUnit })
         val used = accs.filter { !it.account.isArchived }.map { it.account.currencyCode }
-        val codes = (used + listOfNotNull(s.displayCurrency) + r.rates.values.filter { it.source == RateSource.MANUAL }.map { it.currency } + added)
+        val codes = (MAIN_CURRENCIES + used + listOfNotNull(s.displayCurrency) + r.rates.values.filter { it.source == RateSource.MANUAL }.map { it.currency } + added)
             .distinct().filter { it != base }.sorted()
         RatesUiState(
             loading = false,

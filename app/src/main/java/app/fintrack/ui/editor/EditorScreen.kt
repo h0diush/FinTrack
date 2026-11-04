@@ -1092,7 +1092,7 @@ private fun CategoryCell(
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             color = labelColor,
             textAlign = TextAlign.Center,
-            maxLines = 2,
+            maxLines = 3,
             minLines = 2,
             minFontSize = 9.sp,
         )

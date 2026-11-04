@@ -481,6 +481,7 @@ private fun InfoLine(label: String, value: String, bold: Boolean = false) {
 private fun ScheduleCard(loan: Loan, rows: List<LoanRow>, hidden: Boolean) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     fun m(v: Long) = if (hidden) Money.masked(loan.currency) else Money.format(v, loan.currency)
+    fun short(v: Long) = if (hidden) "••••" else Money.format(v, loan.currency, withCode = false)
     Column {
         SectionTitle("График платежей")
         AppCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth().animateContentSize()) {
@@ -507,7 +508,7 @@ private fun ScheduleCard(loan: Loan, rows: List<LoanRow>, hidden: Boolean) {
                         Column(Modifier.weight(1f)) {
                             Text(r.date.format(LOAN_DATE), style = MaterialTheme.typography.bodyMedium)
                             Text(
-                                "долг ${m(r.principalMinor)} · проценты ${m(r.interestMinor)}",
+                                "долг ${short(r.principalMinor)} · проценты ${short(r.interestMinor)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,

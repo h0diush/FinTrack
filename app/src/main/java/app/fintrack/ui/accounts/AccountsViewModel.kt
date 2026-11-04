@@ -311,4 +311,4 @@ class AccountEditViewModel @Inject constructor(
     }
 }
 
-fun Account.subtitle(): String = "${type.title} · $currencyCode" + if (excludeFromTotal) " · вне баланса" else ""
+fun Account.subtitle(): String = type.title + if (excludeFromTotal) " · вне баланса" else ""

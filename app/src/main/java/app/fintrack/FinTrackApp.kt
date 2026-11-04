@@ -4,6 +4,7 @@ import android.app.Application
 import app.fintrack.notify.BudgetAlertMonitor
 import app.fintrack.notify.RecurringNotifier
 import app.fintrack.notify.RecurringWorker
+import app.fintrack.notify.WidgetUpdater
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +15,7 @@ import javax.inject.Inject
 class FinTrackApp : Application() {
 
     @Inject lateinit var budgetAlerts: BudgetAlertMonitor
+    @Inject lateinit var widgets: WidgetUpdater
 
     /** Живёт вместе с процессом: следит за бюджетом и в фоне (автоплатежи), и на экранах. */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -24,5 +26,6 @@ class FinTrackApp : Application() {
         BudgetAlertMonitor.createChannel(this)
         RecurringWorker.schedule(this)
         budgetAlerts.start(appScope)
+        widgets.start(appScope)
     }
 }

@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">FinTrack</string>
+    <string name="widget_title">Общий баланс</string>
+    <string name="widget_add_expense">+ Расход</string>
+    <string name="widget_add_income">+ Доход</string>
+    <string name="widget_description">Баланс, расходы за месяц и быстрое добавление операции</string>
 </resources>
