@@ -64,6 +64,8 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockReset
 import androidx.compose.material.icons.rounded.Fingerprint
@@ -134,6 +136,8 @@ fun SettingsScreen(
     onOpenRecurring: () -> Unit,
     onOpenRates: () -> Unit,
     onPin: (mode: String) -> Unit,
+    onOpenExport: () -> Unit,
+    onOpenImport: () -> Unit,
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val s by vm.settings.collectAsStateWithLifecycle()
@@ -226,6 +230,22 @@ fun SettingsScreen(
                     SettingRow(Icons.Rounded.EventRepeat, "Регулярные платежи", "Подписки, аренда, зарплата — по расписанию", Color(0xFF6D4AFF), onClick = onOpenRecurring)
                     SettingsDivider()
                     SettingRow(Icons.Rounded.RequestQuote, "Кредиты", "Кредиты, рассрочки, ипотека и графики платежей", Color(0xFF059669), onClick = onOpenLoans)
+                }
+            }
+
+            Spacer(Modifier.padding(8.dp))
+
+            Text(
+                "Данные",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
+            )
+            AppCard(modifier = Modifier.fillMaxWidth()) {
+                Column {
+                    SettingRow(Icons.Rounded.FileDownload, "Экспорт операций", "CSV, Excel и отчёт в PDF", Color(0xFF059669), onClick = onOpenExport)
+                    SettingsDivider()
+                    SettingRow(Icons.Rounded.UploadFile, "Импорт из CSV", "Выписка банка или свой экспорт", Color(0xFF2F55E4), onClick = onOpenImport)
                 }
             }
 

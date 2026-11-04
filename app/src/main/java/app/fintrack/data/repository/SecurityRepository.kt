@@ -76,6 +76,7 @@ class SecurityRepository @Inject constructor(
     private val _lock = MutableStateFlow(LockState.CHECKING)
     val lockState: StateFlow<LockState> = _lock.asStateFlow()
     private var backgroundAt: Long? = null
+    private var exemptUntil = 0L
 
     /** При запуске процесса: есть PIN — сразу заблокировано. */
     suspend fun initLock() {
@@ -88,9 +89,19 @@ class SecurityRepository @Inject constructor(
         if (_lock.value == LockState.UNLOCKED) backgroundAt = now
     }
 
+    /**
+     * Приложение сейчас откроет системное окно (выбор файла) и уйдёт в фон по просьбе пользователя:
+     * при возвращении в ближайшие 5 минут PIN не спрашивать, иначе экспорт прервётся блокировкой.
+     */
+    fun allowExternalScreen(now: Long = System.currentTimeMillis()) {
+        exemptUntil = now + 5 * 60_000L
+    }
+
     suspend fun onForeground(now: Long = System.currentTimeMillis()) {
         val s = settings.first()
-        if (s.pinSet && _lock.value == LockState.UNLOCKED && LockPolicy.shouldLock(backgroundAt, now, s.timeoutMs)) {
+        val exempt = now < exemptUntil
+        exemptUntil = 0L
+        if (!exempt && s.pinSet && _lock.value == LockState.UNLOCKED && LockPolicy.shouldLock(backgroundAt, now, s.timeoutMs)) {
             _lock.value = LockState.LOCKED
         }
         backgroundAt = null

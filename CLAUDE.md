@@ -20,13 +20,13 @@ Kotlin 2.0.21, AGP 8.13.2, Gradle 8.13 (нужен **JDK 21**, на JDK 25 не 
 compileSdk/targetSdk 35, minSdk 29, Java/JVM target 17.
 Jetpack Compose (BOM 2024.12.01, Material 3), Navigation Compose 2.8.5, Room 2.6.1 (KSP),
 Hilt 2.52, DataStore 1.1.1, WorkManager 2.9.1, Biometric 1.1.0. Шрифт Inter (`res/font`), иконки Material Icons Rounded (extended).
-Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.12.1 (versionCode 14).
+Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.13.0 (versionCode 15).
 
 ## Сборка и проверки (Windows)
 
 ```
 gradlew.bat assembleRelease          # APK: app\build\outputs\apk\release\app-release.apk
-gradlew.bat testDebugUnitTest        # JVM-тесты доменной логики (app/src/test), сейчас 109
+gradlew.bat testDebugUnitTest        # JVM-тесты доменной логики (app/src/test), сейчас 128
 gradlew.bat connectedDebugAndroidTest # Room и миграции на телефоне/эмуляторе (app/src/androidTest)
 python tools\verify_sql.py           # SQL из Sql.kt/Migrations.kt на настоящей SQLite
 ```
@@ -50,16 +50,18 @@ app/src/main/java/app/fintrack/
                              Recurring (RecurrenceCalculator: даты повторов, описание по-русски),
                              BudgetAlerts (когда слать уведомление о пороге бюджета),
                              Currencies (CurrencyConverter — пересчёт через BYN, NbrbParser),
-                             AppLock (PinHasher — PBKDF2, LockPolicy — тайм-аут и пауза после ошибок)
+                             AppLock (PinHasher — PBKDF2, LockPolicy — тайм-аут и пауза после ошибок),
+                             DataExport (ExportTable, CsvWriter, XlsxWriter — XLSX без библиотек),
+                             StatementImport (CsvReader, StatementParser, ImportDedup, CategoryGuesser)
   data/db/                   Entities.kt, Daos.kt, Sql.kt (все сложные запросы), Migrations.kt,
                              FinTrackDatabase.kt (version 9), DefaultData.kt (стартовые категории)
-  data/repository/           Account, Transaction, Category, Settings, Stats, Budget, Deposit, Piggy, Loan, Recurring, Rates, Security
+  data/repository/           Account, Transaction, Category, Settings, Stats, Budget, Deposit, Piggy, Loan, Recurring, Rates, Security, Export (+ PdfReport), Import
   di/AppModule.kt            Room + миграции, DataStore
   notify/                    RecurringWorker (WorkManager, ежедневно ~9:00), RecurringNotifier (канал, уведомления),
                              RecurringActionReceiver (кнопки «Провести»/«Пропустить» в уведомлении),
                              BudgetAlertMonitor (следит за бюджетом месяца, запускается в FinTrackApp)
   ui/                        theme, components, navigation, charts,
-                             home, editor, history, stats, budget, accounts, piggy, loans, recurring, rates, lock, categories, settings
+                             home, editor, history, stats, budget, accounts, piggy, loans, recurring, rates, lock, exchange, categories, settings
 ```
 
 MVVM: Screen (Compose) → HiltViewModel (StateFlow) → Repository → Room/DataStore.
@@ -113,6 +115,18 @@ UI зависит от доменных моделей, не от сущност
   и шлёт уведомление только при росте уровня (`BudgetAlerts.evaluate`); показанные уровни месяца хранятся
   в DataStore. Первая проверка (новая установка/версия) запоминает состояние молча.
 
+## Экспорт и импорт
+
+- Файлы — только через системные окна (CreateDocument/OpenDocument), разрешений на память нет. Перед их открытием
+  вызывать `SecurityRepository.allowExternalScreen()`, иначе при «Блокировать сразу» вернётся экран PIN.
+- CSV: `;`, запятая в суммах, BOM, CRLF (под русский Excel), текст с `= + - @` экранируется апострофом.
+- XLSX пишется вручную (`XlsxWriter`, inlineStr): суммы и даты — числа. Проверено openpyxl. PDF — `PdfDocument`, всегда светлый.
+- Импорт — только доходы и расходы (переводы и корректировки из нашего экспорта пропускаются). Кодировка UTF-8/16
+  или windows-1251. Id операции `imp:<sha256>` от счёта, даты, суммы, описания и номера повтора — повторная загрузка
+  не задваивает. Строка, похожая на ручную операцию (день + сумма + направление), по умолчанию не загружается.
+  Сумма в другой валюте пересчитывается по курсу, исходная сохраняется в `original*`.
+- `minSdk 29`: не использовать API новее, даже если компилируется (например `InputStream.readNBytes` — только API 33).
+
 ## Блокировка приложения
 
 - PIN из 4 цифр: в DataStore только соль и хеш PBKDF2 (`SecurityRepository`), сам PIN не хранится.
@@ -124,7 +138,7 @@ UI зависит от доменных моделей, не от сущност
 
 ## База данных и миграции
 
-- Схема версии 8: 1→2 budget_limits, 2→3 deposits, 3→4 piggy_banks, 4→5 accounts.excludeFromTotal, 5→6 loans,
+- Схема версии 9: 1→2 budget_limits, 2→3 deposits, 3→4 piggy_banks, 4→5 accounts.excludeFromTotal, 5→6 loans,
   6→7 recurring, 7→8 transactions.originalAmountMinor/originalCurrency, 8→9 recurring.foreignCurrency.
 - Новая схема = `version + 1` в `FinTrackDatabase`, миграция в `Migrations.kt` (точный SQL,
   как генерирует Room; SQL — константой, чтобы его проверял `verify_sql.py`), добавить в `Migrations.ALL`,
@@ -161,7 +175,8 @@ UI зависит от доменных моделей, не от сущност
 кредиты — блок ближайших платежей на главной, раздел в «Счетах», пункт в настройках
 (`Routes.LOANS`, `Routes.loan(id)`, `Routes.loanEdit(id, kind)`);
 регулярные платежи — блок на главной, пункт в настройках, уведомление (`Routes.RECURRING`,
-`Routes.recurringEdit(id)`, `Routes.recurringNew()` — форма операции в режиме шаблона).
+`Routes.recurringEdit(id)`, `Routes.recurringNew()` — форма операции в режиме шаблона);
+экспорт и импорт — раздел «Данные» в настройках (`Routes.EXPORT`, `Routes.IMPORT`).
 
 ## Что сделано
 
@@ -177,10 +192,11 @@ UI зависит от доменных моделей, не от сущност
 0.11 — доход/расход в другой валюте с пересчётом в валюту счёта; окно лимита бюджета над клавиатурой.
 0.12 — блокировка PIN-кодом и отпечатком, тайм-аут, защита от подбора, скрытие в недавних.
 0.12.1 — регулярные платежи в другой валюте (пересчёт по курсу на день платежа).
+0.13 — экспорт в CSV, Excel и PDF, импорт выписок из CSV.
 
 ## Дальше по плану (обсуждать с пользователем перед началом)
 
 - Этап 4 (остаток): автопополнение копилок (по сути есть: регулярный перевод в копилку).
-- Этап 5: экспорт CSV/XLSX/PDF, импорт CSV. Шифрованные резервные копии — пользователь отложил в самый конец.
+- Шифрованные резервные копии (остаток этапа 5) — пользователь отложил в самый конец.
 - Этап 6: виджет, полировка.
 - Предлагалось: налог на проценты по вкладу, ежемесячное пополнение вклада.
