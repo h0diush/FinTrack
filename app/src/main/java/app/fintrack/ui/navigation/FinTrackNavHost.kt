@@ -87,6 +87,7 @@ import app.fintrack.ui.history.HistoryScreen
 import app.fintrack.ui.home.HomeScreen
 import app.fintrack.notify.RecurringNotifier
 import app.fintrack.ui.loans.LoanDetailScreen
+import app.fintrack.ui.exchange.BackupScreen
 import app.fintrack.ui.exchange.ExportScreen
 import app.fintrack.ui.exchange.ImportScreen
 import app.fintrack.ui.lock.PinSetupScreen
@@ -223,6 +224,7 @@ fun FinTrackNavHost(openRequest: String? = null, onOpenHandled: () -> Unit = {})
                 )
             }
             composable(Routes.RATES) { RatesScreen(onBack = { nav.popBackStack() }) }
+            composable(Routes.BACKUP) { BackupScreen(onBack = { nav.popBackStack() }) }
             composable(Routes.EXPORT) { ExportScreen(onBack = { nav.popBackStack() }) }
             composable(Routes.IMPORT) { ImportScreen(onClose = { nav.popBackStack() }) }
             composable(Routes.PIN_SETUP, arguments = listOf(optionalString("mode"))) {
@@ -287,6 +289,7 @@ fun FinTrackNavHost(openRequest: String? = null, onOpenHandled: () -> Unit = {})
                     onOpenRecurring = { nav.navigate(Routes.RECURRING) },
                     onOpenRates = { nav.navigate(Routes.RATES) },
                     onPin = { mode -> nav.navigate(Routes.pinSetup(mode)) },
+                    onOpenBackup = { nav.navigate(Routes.BACKUP) },
                     onOpenExport = { nav.navigate(Routes.EXPORT) },
                     onOpenImport = { nav.navigate(Routes.IMPORT) },
                 )

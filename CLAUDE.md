@@ -20,14 +20,14 @@ Kotlin 2.0.21, AGP 8.13.2, Gradle 8.13 (нужен **JDK 21**, на JDK 25 не 
 compileSdk/targetSdk 35, minSdk 29, Java/JVM target 17.
 Jetpack Compose (BOM 2024.12.01, Material 3), Navigation Compose 2.8.5, Room 2.6.1 (KSP),
 Hilt 2.52, DataStore 1.1.1, WorkManager 2.9.1, Biometric 1.1.0. Шрифт Inter (`res/font`), иконки Material Icons Rounded (extended).
-Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.13.0 (versionCode 15).
+Версии — в `gradle/libs.versions.toml`. Текущая версия приложения: 0.14.0 (versionCode 16).
 
 ## Сборка и проверки (Windows)
 
 ```
 gradlew.bat assembleRelease          # APK: app\build\outputs\apk\release\app-release.apk
-gradlew.bat testDebugUnitTest        # JVM-тесты доменной логики (app/src/test), сейчас 128
-gradlew.bat connectedDebugAndroidTest # Room и миграции на телефоне/эмуляторе (app/src/androidTest)
+gradlew.bat testDebugUnitTest        # JVM-тесты доменной логики (app/src/test), сейчас 138
+gradlew.bat connectedDebugAndroidTest # Room, миграции, копии, файлы экспорта на устройстве (app/src/androidTest), сейчас 30
 python tools\verify_sql.py           # SQL из Sql.kt/Migrations.kt на настоящей SQLite
 ```
 
@@ -37,6 +37,9 @@ Release подписывается debug-ключом (для установки
 Gradle из среды Claude запускать с `--no-daemon "-Pkotlin.compiler.execution.strategy=in-process"`:
 оставленные ею демоны не видят ссылки в AppData\Local и ломают сборку в Android Studio.
 SDK — `D:\LOCALAPPDATA\Android\Sdk` (в `local.properties`).
+Тесты на устройстве запускать с `"-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true"` — иначе Gradle удалит
+приложение вместе с данными эмулятора. Эмулятор без окна: `emulator -avd Medium_Phone_API_37.0 -no-window -no-audio`.
+Изменения базы, файлов и восстановления проверять на устройстве: JVM-тесты этого не покрывают.
 
 ## Структура
 
@@ -52,10 +55,11 @@ app/src/main/java/app/fintrack/
                              Currencies (CurrencyConverter — пересчёт через BYN, NbrbParser),
                              AppLock (PinHasher — PBKDF2, LockPolicy — тайм-аут и пауза после ошибок),
                              DataExport (ExportTable, CsvWriter, XlsxWriter — XLSX без библиотек),
-                             StatementImport (CsvReader, StatementParser, ImportDedup, CategoryGuesser)
+                             StatementImport (CsvReader, StatementParser, ImportDedup, CategoryGuesser),
+                             Backup (BackupCrypto — AES-256-GCM по паролю, BackupPayload, PrefsCodec)
   data/db/                   Entities.kt, Daos.kt, Sql.kt (все сложные запросы), Migrations.kt,
                              FinTrackDatabase.kt (version 9), DefaultData.kt (стартовые категории)
-  data/repository/           Account, Transaction, Category, Settings, Stats, Budget, Deposit, Piggy, Loan, Recurring, Rates, Security, Export (+ PdfReport), Import
+  data/repository/           Account, Transaction, Category, Settings, Stats, Budget, Deposit, Piggy, Loan, Recurring, Rates, Security, Export (+ PdfReport), Import, Backup
   di/AppModule.kt            Room + миграции, DataStore
   notify/                    RecurringWorker (WorkManager, ежедневно ~9:00), RecurringNotifier (канал, уведомления),
                              RecurringActionReceiver (кнопки «Провести»/«Пропустить» в уведомлении),
@@ -127,6 +131,18 @@ UI зависит от доменных моделей, не от сущност
   Сумма в другой валюте пересчитывается по курсу, исходная сохраняется в `original*`.
 - `minSdk 29`: не использовать API новее, даже если компилируется (например `InputStream.readNBytes` — только API 33).
 
+## Резервные копии
+
+- Файл `.ftbackup`: заголовок + AES-256-GCM, ключ из пароля (PBKDF2, итерации в заголовке). Keystore не используется
+  намеренно: его ключ не покидает телефон, копию нельзя было бы открыть после потери телефона.
+- Внутри ZIP: файл базы целиком (после `wal_checkpoint(TRUNCATE)`), настройки из DataStore, описание. Новые таблицы
+  попадают в копию сами. Настройки с префиксами `pin_`, `lock_`, `backup_` — локальные: в копию не идут и при
+  восстановлении не меняются; `budget_alert_` — состояние, сбрасывается.
+- `BackupRepository.restore` закрывает базу, подменяет файл переименованием (прежний — `*.before-restore`) и перезапускает
+  процесс. Старая копия обновляется обычными миграциями, копия новее текущей схемы отклоняется. Поэтому миграции
+  важны и для копий: `Migrations.ALL` должен покрывать все версии.
+- Схема `3.json` восстановлена вручную из 4.json (настоящий файл был утерян), identityHash в ней условный.
+
 ## Блокировка приложения
 
 - PIN из 4 цифр: в DataStore только соль и хеш PBKDF2 (`SecurityRepository`), сам PIN не хранится.
@@ -176,7 +192,7 @@ UI зависит от доменных моделей, не от сущност
 (`Routes.LOANS`, `Routes.loan(id)`, `Routes.loanEdit(id, kind)`);
 регулярные платежи — блок на главной, пункт в настройках, уведомление (`Routes.RECURRING`,
 `Routes.recurringEdit(id)`, `Routes.recurringNew()` — форма операции в режиме шаблона);
-экспорт и импорт — раздел «Данные» в настройках (`Routes.EXPORT`, `Routes.IMPORT`).
+резервная копия, экспорт и импорт — раздел «Данные» в настройках (`Routes.BACKUP`, `Routes.EXPORT`, `Routes.IMPORT`).
 
 ## Что сделано
 
@@ -193,10 +209,11 @@ UI зависит от доменных моделей, не от сущност
 0.12 — блокировка PIN-кодом и отпечатком, тайм-аут, защита от подбора, скрытие в недавних.
 0.12.1 — регулярные платежи в другой валюте (пересчёт по курсу на день платежа).
 0.13 — экспорт в CSV, Excel и PDF, импорт выписок из CSV.
+0.14 — зашифрованные резервные копии и восстановление.
 
 ## Дальше по плану (обсуждать с пользователем перед началом)
 
 - Этап 4 (остаток): автопополнение копилок (по сути есть: регулярный перевод в копилку).
-- Шифрованные резервные копии (остаток этапа 5) — пользователь отложил в самый конец.
+- Резервные копии: автоматическое создание по расписанию (пароль можно хранить под ключом Keystore).
 - Этап 6: виджет, полировка.
 - Предлагалось: налог на проценты по вкладу, ежемесячное пополнение вклада.

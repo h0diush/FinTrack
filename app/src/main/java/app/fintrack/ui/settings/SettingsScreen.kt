@@ -64,6 +64,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material.icons.rounded.Lock
@@ -85,7 +86,10 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val repo: SettingsRepository,
     private val security: app.fintrack.data.repository.SecurityRepository,
+    backups: app.fintrack.data.repository.BackupRepository,
 ) : ViewModel() {
+    val lastBackupAt: StateFlow<Long?> = backups.lastBackupAt.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     val settings: StateFlow<AppSettings> =
         repo.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettings())
 
@@ -136,12 +140,14 @@ fun SettingsScreen(
     onOpenRecurring: () -> Unit,
     onOpenRates: () -> Unit,
     onPin: (mode: String) -> Unit,
+    onOpenBackup: () -> Unit,
     onOpenExport: () -> Unit,
     onOpenImport: () -> Unit,
     vm: SettingsViewModel = hiltViewModel(),
 ) {
     val s by vm.settings.collectAsStateWithLifecycle()
     val sec by vm.securitySettings.collectAsStateWithLifecycle()
+    val lastBackup by vm.lastBackupAt.collectAsStateWithLifecycle()
     val biometricAvailable = app.fintrack.ui.lock.Biometrics.available(androidx.compose.ui.platform.LocalContext.current)
     var showTimeout by remember { mutableStateOf(false) }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -243,6 +249,17 @@ fun SettingsScreen(
             )
             AppCard(modifier = Modifier.fillMaxWidth()) {
                 Column {
+                    SettingRow(
+                        Icons.Rounded.Backup,
+                        "Резервная копия",
+                        lastBackup?.let {
+                            "Последняя: " + java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault())
+                                .format(java.time.format.DateTimeFormatter.ofPattern("d MMMM yyyy", java.util.Locale.forLanguageTag("ru")))
+                        } ?: "Ещё не создавалась — данные только на этом телефоне",
+                        Color(0xFF6D4AFF),
+                        onClick = onOpenBackup,
+                    )
+                    SettingsDivider()
                     SettingRow(Icons.Rounded.FileDownload, "Экспорт операций", "CSV, Excel и отчёт в PDF", Color(0xFF059669), onClick = onOpenExport)
                     SettingsDivider()
                     SettingRow(Icons.Rounded.UploadFile, "Импорт из CSV", "Выписка банка или свой экспорт", Color(0xFF2F55E4), onClick = onOpenImport)

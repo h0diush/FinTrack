@@ -136,6 +136,7 @@ class MigrationTest {
             c.moveToFirst()
             assertEquals(1, c.getInt(0))
         }
+        db.execSQL("PRAGMA foreign_keys = ON") // Room включает их сам, тестовое соединение — нет
         db.execSQL("DELETE FROM accounts WHERE id = 'l'")
         db.query("SELECT COUNT(*) FROM loans").use { c ->
             c.moveToFirst()
@@ -162,6 +163,7 @@ class MigrationTest {
             c.moveToFirst()
             assertEquals(1, c.getInt(0))
         }
+        db.execSQL("PRAGMA foreign_keys = ON") // Room включает их сам, тестовое соединение — нет
         db.execSQL("DELETE FROM accounts WHERE id = 'c'")
         db.query("SELECT COUNT(*) FROM recurring").use { c ->
             c.moveToFirst()

@@ -19,6 +19,7 @@ object Routes {
     const val PIGGY_EDIT = "piggy_edit?id={id}"
     const val RECURRING = "recurring"
     const val RATES = "rates"
+    const val BACKUP = "backup"
     const val EXPORT = "export"
     const val IMPORT = "import"
     const val PIN_SETUP = "pin_setup?mode={mode}"
