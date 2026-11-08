@@ -32,6 +32,9 @@ python tools\verify_sql.py           # SQL из Sql.kt/Migrations.kt на нас
 ```
 
 Release подписывается debug-ключом (для установки на свой телефон), minify включён.
+Готовый APK для скачивания — `apk/FinTrack.apk` в репозитории (ссылка в начале README). При каждой новой версии
+копировать туда свежий `app-release.apk` и менять номер версии в разделе «Скачать и установить» README.
+Подпись — debug-ключ этого компьютера (`~/.android/debug.keystore`): с другим ключом обновление поверх не встанет.
 После любой правки: собрать, прогнать unit-тесты; при изменении SQL или схемы — ещё `verify_sql.py`.
 Сборка должна проходить без ошибок до того, как отчитываться пользователю.
 Gradle из среды Claude запускать с `--no-daemon "-Pkotlin.compiler.execution.strategy=in-process"`:
